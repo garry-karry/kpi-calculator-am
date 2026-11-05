@@ -1,0 +1,1097 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body>
+<title>KPI калькулятор AM</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: a working tool - sticky top bar with quarter and steps, three panels (Данные, Опрос по AM, Результат) */
+:root {
+  --bg: #f4f6f8; --panel: #ffffff; --ink: #18232e; --muted: #5b6b7a; --line: #d7dee5;
+  --accent: #1f6f8b; --accent-ink: #ffffff; --accent-soft: #e3f0f4;
+  --green: #1e7a46; --green-bg: #dcf1e4; --yellow: #8a6200; --yellow-bg: #fdf0c8; --red: #a32424; --red-bg: #fadcdc;
+  --na: #5b6b7a; --na-bg: #e9edf1; --input: #fffbea;
+  --f-body: "Golos Text", "Segoe UI", Roboto, Arial, sans-serif; --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11171d; --panel: #18212a; --ink: #e4eaf0; --muted: #94a3b1; --line: #2c3946;
+  --accent: #5fb3cf; --accent-ink: #0d1a20; --accent-soft: #1b3440;
+  --green: #74d39b; --green-bg: #173826; --yellow: #f0c75e; --yellow-bg: #3a3014; --red: #f19a9a; --red-bg: #3d1c1c;
+  --na: #94a3b1; --na-bg: #243039; --input: #262a1d; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11171d; --panel: #18212a; --ink: #e4eaf0; --muted: #94a3b1; --line: #2c3946;
+  --accent: #5fb3cf; --accent-ink: #0d1a20; --accent-soft: #1b3440;
+  --green: #74d39b; --green-bg: #173826; --yellow: #f0c75e; --yellow-bg: #3a3014; --red: #f19a9a; --red-bg: #3d1c1c;
+  --na: #94a3b1; --na-bg: #243039; --input: #262a1d; color-scheme: dark }
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.45 }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel) }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 48px }
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line) }
+header.top .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding-block: 12px }
+h1 { font-size: 18px; margin: 0; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance }
+h2 { font-size: 16px; margin: 0 0 4px; font-weight: 700 }
+h3 { font-size: 14px; margin: 0; font-weight: 600 }
+.muted { color: var(--muted) }
+.small { font-size: 12px }
+.steps { display: flex; gap: 4px; flex-wrap: wrap }
+.steps button { border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 12px; border-radius: 999px; font: inherit; cursor: pointer }
+.steps button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent) }
+.grow { flex: 1 }
+label.inline { display: inline-flex; align-items: center; gap: 6px }
+select, input[type=number], input[type=text] { font: inherit; color: var(--ink); background: var(--input); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 0 }
+input[type=number] { width: 100%; font-family: var(--f-mono); font-variant-numeric: tabular-nums }
+button.btn { font: inherit; border-radius: 6px; padding: 7px 14px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 600 }
+button.ghost { background: transparent; color: var(--accent) }
+button.btn:focus-visible, .steps button:focus-visible, select:focus-visible, input:focus-visible, .amlist button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+button[disabled] { opacity: .5; cursor: default }
+section.panel { margin-top: 18px; display: grid; gap: 14px }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center }
+#roBanner { border-color: var(--accent) }
+.note { background: var(--accent-soft); border-radius: var(--r); padding: 10px 14px; font-size: 13px }
+.drop { border: 2px dashed var(--line); border-radius: var(--r); padding: 22px; text-align: center; background: var(--panel) }
+.drop.over { border-color: var(--accent); background: var(--accent-soft) }
+.slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start }
+.slot { display: grid; gap: 10px; min-width: 0 }
+.slot .drop { padding: 14px }
+.slot .flist { display: grid; gap: 8px }
+.fitem { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; display: grid; gap: 6px; min-width: 0 }
+.filemap { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 14px; margin-top: 10px }
+.filemap label { display: grid; gap: 2px; font-size: 12px; color: var(--muted) }
+.filemap select { width: 100% }
+body.ro #slots, body.ro #projBox, body.ro #step-survey .card, body.ro #addAm, body.ro #newAm, body.ro #clearAll { pointer-events: none; opacity: .7 }
+.ptab td, .ptab th { padding: 4px 6px; vertical-align: middle }
+.ptab input[type=date], .ptab input[type=number], .ptab select { font: inherit; color: var(--ink); background: var(--input); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; width: 100%; min-width: 92px }
+.ptab .need { border-color: var(--red) !important }
+.ptag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); margin-right: 4px; white-space: nowrap }
+.ptag.warn { border-color: var(--red); color: var(--red) }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel) }
+table { border-collapse: collapse; width: 100%; font-size: 13px }
+th, td { border-bottom: 1px solid var(--line); padding: 7px 9px; text-align: left; vertical-align: top; white-space: nowrap }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; background: var(--panel); position: sticky; top: 0 }
+td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap }
+.z-g { background: var(--green-bg); color: var(--green) } .z-y { background: var(--yellow-bg); color: var(--yellow) }
+.z-r { background: var(--red-bg); color: var(--red) } .z-n { background: var(--na-bg); color: var(--na) }
+.survey { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 14px; align-items: start }
+@media (max-width: 760px) { .survey { grid-template-columns: minmax(0, 1fr) } }
+.amlist { display: grid; gap: 4px }
+.amlist button { text-align: left; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px }
+.amlist button[aria-current="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent) }
+.groups { display: grid; gap: 12px }
+fieldset { border: 1px solid var(--line); border-radius: var(--r); margin: 0; padding: 12px 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 14px }
+legend { font-weight: 700; padding: 0 6px; font-size: 13px }
+.field { display: grid; gap: 3px; min-width: 0 }
+.field > span { font-size: 12px; color: var(--muted) }
+.field.missing input, .field.missing select { border-color: var(--red) }
+.src { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent) }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px }
+.tile b { display: block; font-size: 24px; font-family: var(--f-mono); font-variant-numeric: tabular-nums }
+.advice { display: grid; gap: 10px }
+.adv { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; border-left-width: 4px }
+.adv.b-full { border-left-color: var(--green) } .adv.b-half { border-left-color: var(--yellow) } .adv.b-none { border-left-color: var(--red) } .adv.b-na { border-left-color: var(--na) }
+.adv ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px }
+.adv .ai { margin-top: 10px; white-space: pre-wrap; font-size: 13px; background: var(--accent-soft); border-radius: 6px; padding: 10px 12px }
+details.th summary { cursor: pointer; font-weight: 600 }
+.thgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; margin-top: 10px }
+.thgrid label { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 8px; align-items: center; font-size: 12px }
+.toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 8px; font-size: 13px; max-width: 360px }
+.badge-ex { font-size: 11px; background: var(--yellow-bg); color: var(--yellow); border-radius: 999px; padding: 1px 8px; font-weight: 600 }
+@media (prefers-reduced-motion: no-preference) { .adv, .card { transition: border-color .15s } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <h1>KPI калькулятор AM</h1>
+    <label class="inline small muted" for="quarter">Период
+      <select id="quarter"></select>
+    </label>
+    <label class="inline small muted" for="team" id="teamWrap" hidden>Команда
+      <select id="team"></select>
+    </label>
+    <nav class="steps grow" role="tablist" aria-label="Шаги">
+      <button role="tab" data-step="data" aria-selected="true" id="tab-data">1. Данные</button>
+      <button role="tab" data-step="survey" aria-selected="false" id="tab-survey">2. Опрос по AM</button>
+      <button role="tab" data-step="result" aria-selected="false" id="tab-result">3. Результат</button>
+    </nav>
+    <span id="exampleBadge" class="badge-ex" hidden>пример данных</span>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="note" id="roBanner" hidden></div>
+  <!-- STEP 1 -->
+  <section class="panel" id="step-data">
+    <div class="note">Загрузите выгрузки по блокам - каждый документ в свой блок (Excel или CSV). Данные из всех документов объединяются по имени AM, а если есть колонка с проектом - по проекту и AM (смена AM и новые проекты разбираются в блоке «Проекты периода»). Период выбирается вверху: квартал - для бонуса, месяц - для промежуточного контроля. Строки с датой или периодом вне выбранного пропускаются. Если в документе строка на проект или на QBR, значения сводятся по AM: суммы складываются, Health Score, eNPS и балл качества усредняются, тир проекта и оцененные QBR считаются по строкам. Документы читаются в этом браузере; в общее хранилище калькулятора уходят только итоговые значения по AM, ответы опроса и реестр проектов - их видят РО и редакторы калькулятора.</div>
+    <div id="slots" class="slots"></div>
+    <div class="card" id="projBox" hidden>
+      <h2>Проекты периода</h2>
+      <p class="muted small" style="margin:0 0 10px">Строки документов сопоставляются по названию проекта и AM. Если проект сменил AM, укажите дату передачи: выручка и Forecast делятся по дням, QBR, качество и follow-up - по дате события (до передачи - старому AM), остальное - AM, который вел проект больше половины квартала. Новому проекту укажите дату запуска, Tier и Forecast: выручка и QBR считаются с даты запуска, Health Score и eNPS - и до запуска.</p>
+      <div id="projSum" class="small" style="margin-bottom:8px"></div>
+      <div id="projIssues"></div>
+      <details id="projAllBox"><summary class="small">Все проекты квартала</summary><div class="tablewrap" style="margin-top:8px"><table id="projTable"></table></div></details>
+    </div>
+    <div class="card">
+      <h2>AM в расчете</h2>
+      <p class="muted small" style="margin:0 0 10px">AM появляются из файлов. Можно добавить вручную и заполнить все в опросе.</p>
+      <div class="row">
+        <input type="text" id="newAm" placeholder="Имя AM" aria-label="Имя AM">
+        <button class="btn ghost" id="addAm">Добавить AM</button>
+        <span class="grow"></span>
+        <button class="btn ghost" id="fromMonths" hidden>Собрать квартал из месяцев</button>
+        <button class="btn ghost" id="tplBtn">Скачать шаблон для импорта</button>
+        <button class="btn ghost" id="clearAll">Очистить квартал</button>
+      </div>
+      <p class="small muted" id="storeInfo" style="margin:10px 0 0"></p>
+      <div id="amChips" class="row" style="margin-top:10px"></div>
+    </div>
+    <details class="card th" id="thBox">
+      <summary>Пороги расчета (согласованы, не меняются)</summary>
+      <div class="thgrid" id="thGrid"></div>
+    </details>
+    <div class="row"><span class="grow"></span><button class="btn" data-go="survey">Дальше: опрос по AM</button></div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="panel" id="step-survey" hidden>
+    <div class="note">Пройдите по каждому AM: проверьте подставленные из файлов значения и ответьте на то, чего нет в выгрузках. Красная рамка - поле нужно для расчета. Пустые необязательные поля считаются как «нет данных».</div>
+    <div class="survey">
+      <div class="amlist" id="amList"></div>
+      <div class="card"><div id="form" class="groups"></div>
+        <div class="row" style="margin-top:14px"><button class="btn ghost" id="prevAm">Предыдущий AM</button><span class="grow"></span><button class="btn" id="nextAm">Следующий AM</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="panel" id="step-result" hidden>
+    <div class="note" id="periodNote" hidden></div>
+    <div class="tiles" id="tiles"></div>
+    <div class="row"><h2 class="grow">Таблица расчета</h2><button class="btn" id="exportBtn">Скачать Excel</button></div>
+    <div class="tablewrap"><table id="resTable"></table></div>
+    <div class="row" style="margin-top:18px"><h2 class="grow">KPI лида по результатам команды</h2><button class="btn ghost" id="leadsBtn" hidden>Сводка по всем лидам</button></div>
+    <p class="muted small" style="margin:0 0 8px">Считается из результатов AM команды по правилам блока R «Результат команды по KPI» модели компетенций лида: блокеры повышения - доля AM с выручкой от 95% Forecast ниже 80% и AM в красной зоне KPI QBR; предупреждения - KPI запусков команды в красной зоне, Health Score портфеля ниже 4, меньше половины AM в зеленой зоне KPI QBR.</p>
+    <div class="tiles" id="leadTiles"></div>
+    <div id="leadFlags" class="small" style="margin:8px 0 14px"></div>
+    <div class="tablewrap" id="leadsWrap" hidden style="margin-bottom:14px"><table id="leadsTable"></table></div>
+    <h2>Что сделать с каждым AM</h2>
+    <div class="advice" id="advice"></div>
+    <p class="muted small">Правила расчета повторяют таблицу KPI-QBR-raschet: допуск по выручке, составной KPI QBR (покрытие, качество, follow-up, результат), исключение малого портфеля, два добранных KPI из Health Score, eNPS и запусков. Окончательное решение по спорным случаям - за лидом.</p>
+  </section>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+"use strict";
+// ---------- model ----------
+const TH_DEF = [
+  ["rev", "Допуск по выручке (доля ожидаемого по Forecast)", 0.95],
+  ["covG", "Покрытие QBR: зеленая зона от", 1], ["covY", "Покрытие QBR: желтая зона от", 0.9],
+  ["qG", "Качество QBR: зеленая от (баллов из 12)", 11], ["qY", "Качество QBR: желтая от", 9],
+  ["resG", "Результат: зеленая зона от", 0.8], ["resY", "Результат: желтая зона от", 0.6],
+  ["fuG", "Follow-up: зеленая, нарушений не больше", 1], ["fuY", "Follow-up: желтая, нарушений не больше", 2],
+  ["lG", "Запуск в срок: зеленая от", 0.8], ["lY", "Запуск в срок: желтая от", 0.6],
+  ["lrG", "Риски и эскалации: зеленая от (средний балл из 6)", 5], ["lrY", "Риски и эскалации: желтая от", 4],
+  ["laG", "Точность прогноза: зеленая от", 0.8], ["laY", "Точность прогноза: желтая от", 0.6],
+  ["lcG", "Готовность и пост-запуск: зеленая от", 0.9], ["lcY", "Готовность и пост-запуск: желтая от", 0.7],
+  ["enps", "eNPS: зеленая зона от", 7], ["hs", "Health Score: зеленая от (балл из 5)", 4],
+  ["lim", "Лимит зачета 50% (доля аккаунтов Tier 1 и 2)", 0.1], ["limMin", "Минимум аккаунтов под зачет 50%", 1],
+  ["small", "Малый портфель: плановых QBR меньше", 3]
+];
+const FIELDS = [
+  // key, label, group, kind, required, aggregate, keywords
+  ["rev_fact", "Выручка факт за квартал (тыс.)", "Выручка", "num", true, "sum", ["выручка факт", "факт выручки", "revenue", "rake", "ggr", "факт"]],
+  ["rev_fc", "Выручка ожидаемая по Forecast (тыс.)", "Выручка", "num", true, "sum", ["forecast", "ожидаем", "прогноз", "план выручки"]],
+  ["t1", "Проектов Tier 1", "Портфель", "int", false, "sum", ["tier 1", "tier1", "тир 1"]],
+  ["t2", "Проектов Tier 2", "Портфель", "int", false, "sum", ["tier 2", "tier2", "тир 2"]],
+  ["t3", "Проектов Tier 3", "Портфель", "int", false, "sum", ["tier 3", "tier3", "тир 3"]],
+  ["plan", "Плановых QBR за квартал (Tier 1 и 2)", "Покрытие QBR", "int", true, "sum", ["плановых qbr", "план qbr", "planned qbr", "плановых"]],
+  ["held", "Проведено с ЛПР в срок", "Покрытие QBR", "int", true, "sum", ["проведено", "held", "с лпр"]],
+  ["half", "Зачтено на 50% (аккаунтов)", "Покрытие QBR", "int", false, "sum", ["50%", "зачтено на 50", "50 %"]],
+  ["ladder", "Лестница ЛПР по аккаунту с зачетом 50% выполнена и задокументирована", "Покрытие QBR", "yn", false, "last", ["лестница"]],
+  ["q_avg", "Средний балл качества по всем QBR (0-12)", "Качество", "num", true, "avg", ["средний балл", "балл качества", "качество", "score", "балл", "итог (0-12)", "0-12", "оценка qbr", "итог"]],
+  ["q_n", "Оценено QBR", "Качество", "int", false, "sum", ["оценено"]],
+  ["fu_viol", "Нарушений follow-up за квартал", "Follow-up", "int", true, "sum", ["follow-up", "follow up", "followup", "нарушен"]],
+  ["agr_total", "Договоренностей прошлого QBR, всего", "Результат", "int", false, "sum", ["договоренност", "договорённост", "agreements"]],
+  ["agr_closed", "Из них закрыто", "Результат", "int", false, "sum", ["закрыто"]],
+  ["feat_total", "Фич со сроком анализа в квартале", "Результат", "int", false, "sum", ["фич со сроком", "фич", "features"]],
+  ["feat_done", "Из них доведено до анализа в срок", "Результат", "int", false, "sum", ["доведено", "до анализа"]],
+  ["hs", "Health Score, балл 1-5", "Health Score и eNPS", "num", false, "avg", ["health score", "health", "hs"]],
+  ["enps", "eNPS", "Health Score и eNPS", "num", false, "avg", ["enps", "nps"]],
+  ["has_launch", "Есть незапущенные проекты в пределах срока на начало квартала", "Запуски", "yn", false, "last", ["незапущенные", "есть запуски"]],
+  ["l_n", "Проектов в расчете KPI запусков", "Запуски", "int", false, "sum", ["проектов в расчете", "проектов в расчёте"]],
+  ["l_time", "1. Запуск в срок, % проектов", "Запуски", "num", false, "avg", ["запуск в срок"]],
+  ["l_risk", "2. Риски и эскалации, средний балл из 6", "Запуски", "num", false, "avg", ["риски, средний", "риски и эскалации", "риски"]],
+  ["l_acc", "3. Точность прогноза, % в пределах 14 дней", "Запуски", "num", false, "avg", ["точность прогноза", "точность"]],
+  ["l_ready", "4. Готовность и пост-запуск, % пунктов", "Запуски", "num", false, "avg", ["готовность и пост-запуск", "готовность"]]
+];
+const FMAP = Object.fromEntries(FIELDS.map(f => [f[0], f]));
+const SLOTS = [
+  { id: "rev", label: "Выручка и Forecast", hint: "Факт выручки (Rake + GGR) и ожидаемая по Forecast за квартал, по AM или по проектам", fields: ["rev_fact", "rev_fc"] },
+  { id: "hs", label: "Health Score и eNPS", hint: "Health Score (1-5) и eNPS по проектам или по AM", fields: ["hs", "enps"] },
+  { id: "qbr", label: "QBR: план, факт, follow-up, результат", hint: "Плановые и проведенные QBR, зачет 50%, тиры, нарушения follow-up, договоренности и фичи. Подойдет и сводка из целевого плана QBR", fields: ["t1", "t2", "t3", "plan", "held", "half", "ladder", "fu_viol", "agr_total", "agr_closed", "feat_total", "feat_done"], tier: true },
+  { id: "q", label: "Качество QBR", hint: "Баллы по чек-листу: строка на QBR (балл 0-12) или средний балл по AM", fields: ["q_avg", "q_n"], countRows: "q_n" },
+  { id: "launch", label: "Запуски", hint: "Лист «Сводка» из таблицы KPI-zapuski-raschet: четыре показателя по AM (берутся строки выбранного квартала)", fields: ["has_launch", "l_n", "l_time", "l_risk", "l_acc", "l_ready"] },
+  { id: "all", label: "Все сразу (лист «Ввод» из KPI-QBR-raschet)", hint: "Таблица со всеми колонками по AM за квартал", fields: null, tier: true }
+];
+const slotFields = sl => sl.fields ? FIELDS.filter(f => sl.fields.includes(f[0])) : FIELDS;
+const GROUPS = [...new Set(FIELDS.map(f => f[2]))];
+
+const st = { quarter: "", th: Object.fromEntries(TH_DEF.map(t => [t[0], t[2]])), ams: [], files: [], current: 0, example: false, ai: {}, reg: {} };
+// reg: project registry of the quarter {key: {name, amStart, amEnd, transfer, isNew, launch, tier, fc, edited, seen}}
+// am: {name, v:{key:value}, src:{key:"file"|"manual"}}
+
+const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+// periods: quarters (bonus) and months (interim control)
+function quarters() { const out = []; for (const y of [2027, 2028]) for (let q = 1; q <= 4; q++) { out.push(`Q${q} ${y}`); for (let m = 0; m < 3; m++) out.push(`${MONTHS[(q - 1) * 3 + m]} ${y}`); } return out; }
+function monthOf(p) { const m = String(p).match(/^(\S+)\s+(\d{4})$/); if (!m) return null; const i = MONTHS.findIndex(x => norm(x) === norm(m[1])); return i < 0 ? null : { i, y: +m[2] }; }
+const isMonth = p => !!monthOf(p);
+function quarterOf(p) { const m = monthOf(p); return m ? `Q${Math.floor(m.i / 3) + 1} ${m.y}` : p; }
+function monthsOf(q) { const m = String(q).match(/Q(\d)\s+(\d{4})/); if (!m) return []; return [0, 1, 2].map(k => `${MONTHS[(+m[1] - 1) * 3 + k]} ${m[2]}`); }
+const norm = s => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+const num = v => { if (v === "" || v == null) return null; if (typeof v === "number") return isFinite(v) ? v : null; const s = String(v).replace(/\s/g, "").replace(",", ".").replace("%", ""); const n = parseFloat(s); return isFinite(n) ? n : null; };
+const yn = v => { const s = norm(v); if (!s) return null; if (["да", "yes", "y", "1", "true", "истина"].includes(s)) return "Да"; if (["нет", "no", "n", "0", "false", "ложь"].includes(s)) return "Нет"; return null; };
+const pct = v => v == null ? "" : Math.round(v * 100) + "%";
+const fmt = v => v == null ? "" : (Math.round(v * 10) / 10).toLocaleString("ru-RU");
+
+// ---------- persistence (per-viewer draft) ----------
+// Per-quarter store in this browser: imported documents (with their rows and column mapping), survey answers and Claude's analyses
+const KEY = "kpi-qbr-calc-v2", OLD_KEY = "kpi-qbr-calc-v1";
+function readAll() {
+  try { const s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s && s.quarters) return s; } catch (e) {}
+  const all = { current: "", quarters: {} };
+  try { const o = JSON.parse(localStorage.getItem(OLD_KEY) || "null"); if (o && Array.isArray(o.ams) && o.ams.length && !o.example) { all.current = o.quarter || "Q1 2027"; all.quarters[all.current] = { ams: o.ams, files: [], ai: {}, savedAt: Date.now() }; } } catch (e) {}
+  return all;
+}
+let storeOk = true, storeNoRows = false;
+function save() {
+  if (cloud.view) { renderStoreInfo(); return; }   // viewing another team: read only
+  st.savedAt = Date.now(); cloudSave();
+  try {
+    const all = readAll(); all.current = st.quarter;
+    if (!st.example) {
+      if (st.ams.length || st.files.length || Object.keys(st.reg).length) all.quarters[st.quarter] = { ams: st.ams, files: st.files, ai: st.ai, reg: st.reg, savedAt: st.savedAt };
+      else delete all.quarters[st.quarter];
+    }
+    try { localStorage.setItem(KEY, JSON.stringify(all)); storeNoRows = false; }
+    catch (e) {
+      // over the browser quota: keep answers and mappings, drop the raw rows of the documents
+      for (const q of Object.values(all.quarters)) q.files = (q.files || []).map(f => ({ name: f.name, slot: f.slot, sheet: f.sheet, map: f.map, headers: f.headers, hr: f.hr, sheets: [], light: true }));
+      localStorage.setItem(KEY, JSON.stringify(all)); storeNoRows = true;
+    }
+    storeOk = true;
+  } catch (e) { storeOk = false; }
+  renderStoreInfo();
+}
+function loadQuarter(q) {
+  const d = cloud.view ? cloud.view.data[q] : readAll().quarters[q];
+  st.ams = d ? d.ams || [] : []; st.files = d ? (d.files || []).filter(f => !f.light) : []; st.ai = d ? d.ai || {} : {}; st.reg = d ? d.reg || {} : {};
+  st.lightFiles = d ? (d.files || []).filter(f => f.light).map(f => f.name) : [];
+  st.example = false; st.current = 0;
+}
+function savedQuarters() { return Object.keys(readAll().quarters); }
+function renderStoreInfo() {
+  const box = document.getElementById("storeInfo"); if (!box) return;
+  if (cloud.view) { const d = cloud.view.data[st.quarter]; box.textContent = d ? `Команда ${cloud.view.name}, ${st.quarter}: сохранено ${new Date(d.savedAt).toLocaleString("ru-RU")}. Только просмотр.` : `У команды ${cloud.view.name} нет данных за ${st.quarter}.`; return; }
+  setTimeout(() => { const b = document.getElementById("storeInfo"); if (b && cloud.ok && !st.example) b.textContent += cloud.err ? " " + cloud.err : cloud.mine[st.quarter] ? " Копия в общем хранилище калькулятора: видят РО и редакторы." : ""; }, 0);
+  const d = readAll().quarters[st.quarter];
+  if (!storeOk) { box.textContent = "Браузер не дает сохранять данные (приватное окно или заблокированное хранилище): после закрытия страницы ввод пропадет."; return; }
+  if (st.example) { box.textContent = "Сейчас показан пример. Загрузите документы или добавьте AM - данные квартала сохранятся в этом браузере."; return; }
+  box.textContent = d ? `Данные ${st.quarter} сохранены в этом браузере: ${new Date(d.savedAt).toLocaleString("ru-RU")}. Документов: ${(d.files || []).length}, AM: ${(d.ams || []).length}.` + (storeNoRows ? " Документы слишком большие для хранилища: сохранены ответы и сопоставление колонок, строки документов - нет." : "") : `По ${st.quarter} данных пока нет.`;
+  const qsEl = document.getElementById("quarter"); if (qsEl) { const saved = new Set(savedQuarters()); [...qsEl.options].forEach(o => { o.textContent = (isMonth(o.value) ? "\u00a0\u00a0\u00a0" : "") + o.value + (saved.has(o.value) ? " - сохранено" : ""); }); }
+}
+
+// ---------- shared storage (artifact database): each lead writes own team, RO and editors read all ----------
+const cloud = { db: null, user: null, uid: null, ok: false, admin: false, mine: {}, teams: [], names: {}, view: null, timer: null, chain: Promise.resolve(), err: "" };
+const qid = q => { const mo = monthOf(q); return mo ? `M${mo.y}-${String(mo.i + 1).padStart(2, "0")}` : String(q).replace(/\s+/g, "-"); };
+function cloudPrev(pq) { const src = cloud.view ? cloud.view.data : cloud.mine; return src && src[pq] || null; }
+const lite = fs => (fs || []).map(f => ({ name: f.name, slot: f.slot, sheet: f.sheet, map: f.map, headers: f.headers, hr: f.hr, sheets: [], light: true }));
+function enqueue(fn) {
+  cloud.chain = cloud.chain.then(fn).then(() => { cloud.err = ""; }, e => { cloud.err = e && e.code === "quota_exceeded" ? "Общее хранилище заполнено - сохранено только в этом браузере." : e && (e.code === "not_granted" || e.code === "permission_denied") ? "Нет прав на запись в общее хранилище - нужен доступ Contributor." : "Общее хранилище недоступно - сохранено только в этом браузере."; }).then(renderStoreInfo);
+}
+function putQuarter(q, d) {
+  const ref = cloud.db.doc(`teams/${cloud.uid}/quarters/${qid(q)}`);
+  if (!d) { delete cloud.mine[q]; return ref.delete().catch(() => {}).then(putIndex); }
+  const body = JSON.parse(JSON.stringify({ quarter: q, ams: d.ams || [], ai: d.ai || {}, reg: d.reg || {}, files: lite(d.files), savedAt: d.savedAt || Date.now() }));
+  cloud.mine[q] = body;
+  return ref.set(body).then(putIndex);
+}
+function putIndex() { return cloud.db.doc(`teams/${cloud.uid}`).set({ updatedAt: Date.now(), quarters: Object.keys(cloud.mine) }); }
+function cloudSave() {
+  if (!cloud.ok || cloud.view || st.example) return;
+  clearTimeout(cloud.timer);
+  const q = st.quarter;
+  cloud.timer = setTimeout(() => {
+    const empty = !st.ams.length && !st.files.length && !Object.keys(st.reg).length;
+    const d = empty ? null : { ams: st.ams, ai: st.ai, reg: st.reg, files: st.files, savedAt: st.savedAt || Date.now() };
+    enqueue(() => putQuarter(q, d));
+  }, 1200);
+}
+async function cloudInit() {
+  if (!(window.claude && window.claude.use)) return;
+  const db = await window.claude.use("db"); if (!db) return;
+  const user = await window.claude.use("user"); const uid = user ? await user.id() : null; if (!uid) return;
+  Object.assign(cloud, { db, user, uid });
+  try {
+    const snap = await db.collection(`teams/${uid}/quarters`).get();
+    for (const d of snap.docs) { const x = d.data(); if (x && x.quarter) cloud.mine[x.quarter] = x; }
+    cloud.ok = true;
+  } catch (e) { renderStoreInfo(); return; }
+  // merge with this browser: the newer copy of each quarter wins; quarters only here go up once
+  const all = readAll(); let changed = false;
+  for (const [q, x] of Object.entries(cloud.mine)) { const l = all.quarters[q]; if (!l || (x.savedAt || 0) > (l.savedAt || 0)) { all.quarters[q] = x; changed = true; } }
+  if (changed) { try { localStorage.setItem(KEY, JSON.stringify(all)); } catch (e) {} }
+  for (const [q, d] of Object.entries(all.quarters)) if (!cloud.mine[q] || (d.savedAt || 0) > (cloud.mine[q].savedAt || 0)) enqueue(() => putQuarter(q, d));
+  if (changed && (st.example || cloud.mine[st.quarter])) {
+    if (st.example) st.quarter = all.current && all.quarters[all.current] ? all.current : Object.keys(all.quarters).sort().pop();
+    loadQuarter(st.quarter); $("#quarter").value = st.quarter; renderAll();
+  }
+  cloud.admin = await user.canEdit();
+  if (cloud.admin) await loadTeams();
+  renderStoreInfo();
+}
+async function loadTeams() {
+  try { const snap = await cloud.db.collection("teams").get(); cloud.teams = snap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })).filter(t => t.id !== cloud.uid); } catch (e) { cloud.teams = []; }
+  try { cloud.names = cloud.teams.length ? await cloud.user.profiles(cloud.teams.map(t => t.id)) : {}; } catch (e) { cloud.names = {}; }
+  renderTeams();
+}
+function teamName(id) { const p = cloud.names && cloud.names[id]; return (p && p.name) || "Лид без имени"; }
+function renderTeams() {
+  const wrap = $("#teamWrap"), sel = $("#team");
+  wrap.hidden = !(cloud.admin && cloud.teams.length);
+  if (wrap.hidden) return;
+  sel.replaceChildren(el("option", { value: "", text: "Моя" }), ...cloud.teams.map(t => el("option", { value: t.id, selected: cloud.view && cloud.view.id === t.id, text: `${teamName(t.id)}${t.updatedAt ? " - " + new Date(t.updatedAt).toLocaleDateString("ru-RU") : ""}` })));
+}
+async function viewTeam(id) {
+  if (!id) { cloud.view = null; document.body.classList.remove("ro"); $("#roBanner").hidden = true; loadQuarter(st.quarter); renderAll(); return; }
+  if (!cloud.view) save();   // keep own draft before switching
+  let data = {};
+  try { const snap = await cloud.db.collection(`teams/${id}/quarters`).get(); for (const d of snap.docs) { const x = d.data(); if (x && x.quarter) data[x.quarter] = x; } }
+  catch (e) { toast("Не удалось открыть данные команды"); $("#team").value = ""; return; }
+  cloud.view = { id, name: teamName(id), data };
+  document.body.classList.add("ro");
+  const b = $("#roBanner"); b.hidden = false; b.textContent = `Просмотр: команда ${cloud.view.name}. Только чтение - чтобы вернуться к своим данным, выберите «Моя» в поле «Команда».`;
+  loadQuarter(st.quarter); renderAll();
+}
+
+// ---------- example ----------
+function exampleAms() {
+  const mk = (name, v) => ({ name, v, src: Object.fromEntries(Object.keys(v).map(k => [k, "manual"])) });
+  return [
+    mk("Пример: Анна Петрова", { rev_fact: 1180, rev_fc: 1150, t1: 2, t2: 2, t3: 1, plan: 5, held: 5, half: 0, q_avg: 11.4, q_n: 5, fu_viol: 0, agr_total: 10, agr_closed: 9, feat_total: 3, feat_done: 3, hs: 4.3, enps: 7.5, has_launch: "Да", l_n: 3, l_time: 1, l_risk: 5.3, l_acc: 0.9, l_ready: 0.94 }),
+    mk("Пример: Иван Сидоров", { rev_fact: 960, rev_fc: 1000, t1: 1, t2: 3, t3: 2, plan: 4, held: 3, half: 1, ladder: "Да", q_avg: 9.6, q_n: 4, fu_viol: 2, agr_total: 8, agr_closed: 5, feat_total: 2, feat_done: 1, hs: 3.6, enps: 8, has_launch: "Нет" }),
+    mk("Пример: Ольга Ким", { rev_fact: 610, rev_fc: 700, t1: 0, t2: 2, t3: 3, plan: 2, held: 1, half: 0, q_avg: 10, q_n: 1, fu_viol: 1, agr_total: 4, agr_closed: 4, hs: 4.1, enps: 6, has_launch: "Да", l_n: 1, l_time: 0, l_risk: 3, l_acc: 0, l_ready: 0.5 })
+  ];
+}
+
+// ---------- calculation (mirrors KPI-QBR-raschet) ----------
+function zone(v, g, y, lowerIsBetter) {
+  if (v == null) return "";
+  if (lowerIsBetter) return v <= g ? "Зеленая" : v <= y ? "Желтая" : "Красная";
+  return v >= g ? "Зеленая" : v >= y ? "Желтая" : "Красная";
+}
+function calc(am) {
+  const v = am.v, T = st.th, N = k => num(v[k]) ?? 0, has = k => num(v[k]) != null;
+  const r = { name: am.name };
+  r.revPct = has("rev_fc") && N("rev_fc") > 0 && has("rev_fact") ? N("rev_fact") / N("rev_fc") : null;
+  r.revOk = r.revPct == null ? "" : r.revPct >= T.rev ? "Да" : "Нет";
+  r.accounts = (has("t1") || has("t2")) ? N("t1") + N("t2") : null;
+  r.cov = has("plan") && N("plan") > 0 ? (N("held") + 0.5 * N("half")) / N("plan") : null;
+  r.covZone = zone(r.cov, T.covG, T.covY);
+  r.lim = Math.max(T.limMin, Math.ceil(T.lim * (r.accounts ?? 0)));
+  r.limOver = N("half") > r.lim;
+  r.q = has("q_avg") ? Math.floor(N("q_avg")) : null;
+  r.qZone = zone(r.q, T.qG, T.qY);
+  r.fu = has("plan") && N("held") > 0 && has("fu_viol") ? N("fu_viol") : (N("held") > 0 && has("fu_viol") ? N("fu_viol") : null);
+  r.fuZone = r.fu == null ? "" : zone(r.fu, T.fuG, T.fuY, true);
+  const at = N("agr_total"), ft = N("feat_total");
+  r.res = (at === 0 && ft === 0) ? null : Math.min(at ? N("agr_closed") / at : 1, ft ? N("feat_done") / ft : 1);
+  r.resZone = zone(r.res, T.resG, T.resY);
+  r.greens = [r.qZone, r.fuZone, r.resZone].filter(z => z === "Зеленая").length;
+  r.small = r.covZone === "Красная" && N("plan") < T.small && N("half") === 1 && N("held") + N("half") >= N("plan") && v.ladder === "Да";
+  const tiersGiven = has("t1") || has("t2") || has("t3");
+  if (tiersGiven && N("t1") + N("t2") === 0) r.qbr = "Не применяется";
+  else if (r.cov == null) r.qbr = "Нет данных";
+  else if (r.small) r.qbr = r.greens >= 2 ? "Желтая" : "Красная";
+  else if (r.covZone === "Красная") r.qbr = "Красная";
+  else r.qbr = r.greens === 3 ? "Зеленая" : r.greens === 2 ? "Желтая" : "Красная";
+  r.hsZone = has("hs") && N("hs") >= T.hs ? "Зеленая" : "Не зеленая";
+  r.enpsZone = has("enps") && N("enps") >= T.enps ? "Зеленая" : "Не зеленая";
+  // composite launch KPI (Регламент KPI по запускам): 4 indicators, overall zone by the agreed rule
+  const P = k => { const x = num(v[k]); return x == null ? null : x > 1.0001 ? x / 100 : x; };
+  const hasL = num(v.l_n) === 0 ? false : v.has_launch === "Да" || (v.has_launch == null && num(v.l_n) > 0);
+  r.lTime = P("l_time"); r.lRisk = num(v.l_risk); r.lAcc = P("l_acc"); r.lReady = P("l_ready"); r.launch = r.lTime;
+  r.lzT = zone(r.lTime, T.lG, T.lY); r.lzR = zone(r.lRisk, T.lrG, T.lrY); r.lzA = zone(r.lAcc, T.laG, T.laY); r.lzC = zone(r.lReady, T.lcG, T.lcY);
+  r.lGreens = [r.lzR, r.lzA, r.lzC].filter(z => z === "Зеленая").length;
+  r.lZone = !hasL ? "Не применяется" : r.lTime == null ? "" : (r.lzT === "Зеленая" && r.lGreens === 3) ? "Зеленая"
+    : ((r.lzT === "Зеленая" || r.lzT === "Желтая") && r.lGreens >= 2) ? "Желтая" : "Красная";
+  r.extra = [r.hsZone, r.enpsZone, r.lZone].filter(z => z === "Зеленая").length;
+  if (r.revOk === "" || r.qbr === "Нет данных") r.bonus = "Нет данных";
+  else if (r.revOk === "Нет") r.bonus = "Бонуса нет: выручка ниже допуска";
+  else if (r.qbr === "Красная") r.bonus = "Бонуса нет: QBR в красной зоне";
+  else if (r.extra >= 2) r.bonus = (r.qbr === "Зеленая" || r.qbr === "Не применяется") ? "Полный бонус" : "50% бонуса";
+  else r.bonus = "Решение лида: добранных KPI меньше двух";
+  r.planRef = (has("t1") || has("t2")) ? 1.5 * N("t1") + N("t2") : null;
+  r.planCheck = r.planRef == null || !has("plan") ? "" : Math.abs(N("plan") - r.planRef) <= 0.5 * N("t1") ? "ОК" : "Сверить с календарем QBR";
+  r.missing = FIELDS.filter(f => f[4] && !has(f[0])).map(f => f[1]);
+  return r;
+}
+function bonusClass(b) { return b === "Полный бонус" ? "b-full" : b === "50% бонуса" ? "b-half" : b.startsWith("Бонуса нет") ? "b-none" : "b-na"; }
+function zoneChip(z) {
+  const c = z === "Зеленая" ? "z-g" : z === "Желтая" ? "z-y" : z === "Красная" ? "z-r" : "z-n";
+  const s = document.createElement("span"); s.className = "chip " + c; s.textContent = z || "нет данных"; return s;
+}
+function advice(am, r) {
+  const v = am.v, T = st.th, N = k => num(v[k]) ?? 0, out = [];
+  if (r.missing.length) out.push(`Нет данных для расчета: ${r.missing.join(", ")}. Заполните в опросе.`);
+  if (r.revOk === "Нет") out.push(`Выручка ${pct(r.revPct)} от Forecast при пороге ${pct(T.rev)}: бонуса нет при любом KPI QBR. Разобрать с AM проекты с самым большим отставанием от Forecast и план роста на следующий квартал (апсейл из QBR, лобби-ревью, CRM-механики).`);
+  else if (r.revPct != null && r.revPct < T.rev + 0.05) out.push(`Выручка ${pct(r.revPct)} - близко к порогу. Проверить проекты в зоне риска до конца следующего квартала.`);
+  if (r.covZone === "Красная" && !r.small) out.push(`Покрытие QBR ${pct(r.cov)}: проведено ${N("held")} из ${N("plan")} плановых. Закрепить даты QBR на следующий квартал с ЛПР за 14 дней, при неподтвержденной дате - эскалация к 4-му рабочему дню.`);
+  else if (r.covZone === "Желтая") out.push(`Покрытие QBR ${pct(r.cov)} - ниже 100%. Проверить, какие аккаунты выпали, и поставить их первыми в календарь следующего квартала.`);
+  if (r.small) out.push("Применено исключение малого портфеля: один аккаунт с зачетом 50% не опускает KPI QBR ниже желтой зоны. Проверить, что лестница ЛПР задокументирована.");
+  if (r.limOver) out.push(`Зачтено на 50% больше лимита (${r.lim}): аккаунты сверх лимита идут на разбор у лида, решение записать с причиной.`);
+  if (r.qZone === "Красная" || r.qZone === "Желтая") out.push(`Качество QBR ${r.q} из 12 (зеленая от ${T.qG}). Разобрать с AM пункты чек-листа с баллом 0-1 (цели клиента, данные, риски, план, апсейл, лобби-ревью) и подготовить следующий QBR по шаблону вместе с лидом.`);
+  if (r.fuZone === "Красная" || r.fuZone === "Желтая") out.push(`Follow-up: ${r.fu} нарушений за квартал (зеленая - не больше ${T.fuG}). Follow-up отправлять до конца следующего рабочего дня, с презентацией, статусом прошлых договоренностей и коммитментами.`);
+  if (r.resZone === "Красная" || r.resZone === "Желтая") {
+    const a = N("agr_total") ? N("agr_closed") / N("agr_total") : null, f = N("feat_total") ? N("feat_done") / N("feat_total") : null;
+    const parts = [];
+    if (a != null && a < T.resG) parts.push(`закрыто ${pct(a)} договоренностей`);
+    if (f != null && f < T.resG) parts.push(`до анализа доведено ${pct(f)} фич`);
+    out.push(`Результат QBR ${pct(r.res)}${parts.length ? " (" + parts.join(", ") + ")" : ""}. Вести договоренности с owner и сроком в CRM, проверять статус раз в 2 недели; анализ фич ставить на +30 дней (+60 для медленной фичи).`);
+  }
+  if (r.hsZone !== "Зеленая") out.push(num(v.hs) == null ? "Health Score не указан - добранный KPI не засчитывается." : `Health Score ${fmt(num(v.hs))} (зеленая от ${T.hs}). По проектам с низким баллом: CSAT, Show-stopper баги Support, задачи Release/Launch - план закрытия с поддержкой и разработкой.`);
+  if (r.enpsZone !== "Зеленая") out.push(num(v.enps) == null ? "eNPS не указан - добранный KPI не засчитывается." : `eNPS ${fmt(num(v.enps))} (цель от ${T.enps}). Собрать обратную связь клиентов с низкой оценкой и вынести действия на ближайший QBR.`);
+  if (r.lZone === "Красная" || r.lZone === "Желтая") {
+    const weak = [];
+    if (r.lzT !== "Зеленая") weak.push(`запуск в срок ${pct(r.lTime)}`);
+    if (r.lzR !== "Зеленая") weak.push(`риски и эскалации ${r.lRisk == null ? "нет оценки" : fmt(r.lRisk) + " из 6"}`);
+    if (r.lzA !== "Зеленая") weak.push(`точность прогноза ${r.lAcc == null ? "нет данных" : pct(r.lAcc)}`);
+    if (r.lzC !== "Зеленая") weak.push(`готовность и пост-запуск ${r.lReady == null ? "нет данных" : pct(r.lReady)}`);
+    out.push(`KPI по запускам в ${r.lZone === "Красная" ? "красной" : "желтой"} зоне: ${weak.join(", ")}. Риски и блокеры - в плане запуска с owner, риск срыва поднимать за 2 недели, эскалацию - за 2 рабочих дня; первую Expected launch date согласовывать с заказчиком реалистично; до запуска - лобби-ревью, план воронки и метрики 30/60/90, после - анализ 30 и 60 дней и итоги на QBR. Каждый срыв разобрать по «Чек-листу лида».`);
+  }
+  if (r.lZone === "" && (v.has_launch === "Да")) out.push("Есть проекты на запуск, но нет показателей KPI по запускам. Загрузите лист «Сводка» таблицы KPI-zapuski-raschet или заполните четыре показателя в опросе.");
+  if (r.bonus.startsWith("Решение лида")) out.push(`В зеленой зоне ${r.extra} из 3 добранных KPI (Health Score, eNPS, запуски) при выполненных выручке и QBR. Нужно решение лида по бонусу.`);
+  if (r.planCheck === "Сверить с календарем QBR") out.push(`Плановых QBR ${N("plan")}, а по тирам ожидается около ${fmt(r.planRef)}. Сверить с календарем QBR и целевым планом.`);
+  for (const e of Object.values(st.reg)) {
+    const ps = projState(e); if (!ps) continue;
+    const mine = [ps.oldAm, ps.newAm].some(n => norm(n) === norm(am.name));
+    if (!mine) continue;
+    if (ps.needDate) out.push(`Проект «${e.name}» сменил AM (${ps.oldAm} → ${ps.newAm}), но нет даты передачи: пока он посчитан целиком на ${ps.newAm}. Укажите дату на шаге «Данные», и KPI пересчитаются.`);
+    if (ps.needNew && norm(ps.newAm) === norm(am.name)) out.push(`Новый проект «${e.name}»: укажите дату запуска и Tier на шаге «Данные», чтобы калькулятор понимал, с какого момента считать выручку и QBR.`);
+  }
+  if (!out.length) out.push("Все KPI в зеленой зоне. Отметить на 1:1, что сработало, и взять практики для команды.");
+  return out;
+}
+
+// ---------- import ----------
+function guessCol(headers, f) {
+  const hs = headers.map(norm);
+  for (const kw of f[6]) { const i = hs.findIndex(h => h && h.includes(kw)); if (i >= 0) return i; }
+  return -1;
+}
+function headerRow(rows) {
+  let best = 0, score = -1;
+  for (let i = 0; i < Math.min(12, rows.length); i++) { const s = rows[i].filter(c => typeof c === "string" && c.trim()).length; if (s > score) { score = s; best = i; } }
+  return best;
+}
+async function readFile(file, slotId) {
+  const buf = await file.arrayBuffer();
+  let wb;
+  if (/\.(csv|txt)$/i.test(file.name)) {
+    // CSV: UTF-8 first, Windows-1251 (Excel's Cyrillic default) if UTF-8 does not fit
+    let text = new TextDecoder("utf-8").decode(buf);
+    if (text.includes("\uFFFD")) { try { text = new TextDecoder("windows-1251").decode(buf); } catch (e) {} }
+    wb = XLSX.read(text.replace(/^\uFEFF/, ""), { type: "string" });
+  } else wb = XLSX.read(buf, { type: "array" });
+  const sheets = wb.SheetNames.map(n => ({ name: n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: "", raw: true }) })).filter(s => s.rows.length);
+  if (!sheets.length) throw new Error("В файле нет данных");
+  const pick = sheets.find(s => /ввод/i.test(s.name)) || sheets[0];
+  const fileObj = { name: file.name, sheets, sheet: pick.name, map: {}, slot: slotId };
+  setupSheet(fileObj);
+  st.files.push(fileObj);
+}
+function setupSheet(fo) {
+  const sh = fo.sheets.find(s => s.name === fo.sheet);
+  fo.hr = headerRow(sh.rows);
+  fo.headers = sh.rows[fo.hr].map(c => String(c ?? "").trim());
+  fo.map = {};
+  const amIdx = guessCol(fo.headers, [0, 0, 0, 0, 0, 0, ["am", "менеджер", "аккаунт-менеджер", "аккаунт менеджер", "owner", "владелец", "сотрудник"]]);
+  fo.map.am = amIdx;
+  const sl = SLOTS.find(x => x.id === fo.slot) || SLOTS[SLOTS.length - 1];
+  const fl = slotFields(sl);
+  fo.map.tier = sl.tier ? guessCol(fo.headers, [0, 0, 0, 0, 0, 0, ["тир", "tier"]]) : -1;
+  fo.map.pr = sl.id === "launch" ? -1 : projCol(fo.headers, amIdx);
+  fo.map.dt = fo.map.pr >= 0 ? dateCol(fo.headers) : -1;
+  for (const f of fl) fo.map[f[0]] = guessCol(fo.headers, f);
+  // a column named just "Tier"/"Тир" is a per-project tier, not a count of Tier 1/2/3 projects
+  if (fo.map.tier >= 0 && ["t1", "t2", "t3"].some(k => fo.map[k] === fo.map.tier)) fo.map.tier = -1;
+  // avoid one column feeding two fields
+  const used = new Set([fo.map.am, fo.map.pr, fo.map.dt].filter(i => i >= 0));
+  for (const f of fl) { const i = fo.map[f[0]]; if (i >= 0 && used.has(i)) fo.map[f[0]] = -1; else if (i >= 0) used.add(i); }
+}
+// ---------- projects: matching by project and AM, AM change, new projects ----------
+function projCol(headers, amIdx) {
+  const hs = headers.map(norm);
+  const i = hs.findIndex((h, j) => j !== amIdx && h && !h.startsWith("проектов") && (h === "проект" || h.startsWith("проект ") || h.startsWith("проект,") || h.includes("название проекта") || h.startsWith("project") || h === "клиент" || h === "оператор" || h === "аккаунт"));
+  return i;
+}
+function dateCol(headers) {
+  const hs = headers.map(norm);
+  return hs.findIndex(h => h && (h.startsWith("дата") || h.includes(" дата") || h === "date" || h.includes("date of") || h === "месяц"));
+}
+const ISO = d => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : "";
+function toDate(v) {
+  if (v == null || v === "") return null;
+  if (v instanceof Date) return isNaN(v) ? null : new Date(v.getFullYear(), v.getMonth(), v.getDate());
+  if (typeof v === "number" && v > 20000 && v < 80000) { const d = new Date(Date.UTC(1899, 11, 30) + v * 864e5); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); }
+  const s = String(v).trim(); let m;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return new Date(+m[1], m[2] - 1, +m[3]);
+  if ((m = s.match(/^(\d{4})-(\d{1,2})$/))) return new Date(+m[1], m[2] - 1, 1);
+  { const mo = monthOf(s); if (mo) return new Date(mo.y, mo.i, 1); }
+  if ((m = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})/))) return new Date(m[3].length === 2 ? 2000 + +m[3] : +m[3], m[2] - 1, +m[1]);
+  return null;
+}
+function qRange(q) { const mo = monthOf(q); if (mo) return { s: new Date(mo.y, mo.i, 1), e: new Date(mo.y, mo.i + 1, 0) }; const m = String(q).match(/Q(\d)\s+(\d{4})/); if (!m) return null; const y = +m[2], k = +m[1]; return { s: new Date(y, (k - 1) * 3, 1), e: new Date(y, k * 3, 0) }; }
+function prevQuarter(q) { const mo = monthOf(q); if (mo) return mo.i ? `${MONTHS[mo.i - 1]} ${mo.y}` : `${MONTHS[11]} ${mo.y - 1}`; const m = String(q).match(/Q(\d)\s+(\d{4})/); if (!m) return ""; const k = +m[1], y = +m[2]; return k === 1 ? `Q4 ${y - 1}` : `Q${k - 1} ${y}`; }
+const DAY = 864e5, days = (a, b) => Math.max(0, Math.round((b - a) / DAY) + 1);
+// field families for attribution
+const REV = new Set(["rev_fact", "rev_fc"]);
+const EVENT = new Set(["plan", "held", "half", "q_avg", "q_n", "fu_viol"]);
+const PRELAUNCH = new Set(["hs", "enps"]);
+function prevReg() {
+  const pq = prevQuarter(st.quarter);
+  const d = (typeof cloudPrev === "function" && cloudPrev(pq)) || readAll().quarters[pq];
+  return d && d.reg ? d.reg : null;
+}
+// entry state for a quarter: who gets what share
+function projState(e) {
+  const qr = qRange(st.quarter); if (!qr) return null;
+  const changed = !!(e.amStart && e.amEnd && norm(e.amStart) !== norm(e.amEnd));
+  const tr = changed ? toDate(e.transfer) : null;
+  const trIn = tr && tr > qr.s && tr <= qr.e ? tr : null;
+  const launch = e.isNew ? toDate(e.launch) : null;
+  const notLaunched = !!(e.isNew && launch && launch > qr.e);
+  const start = launch && launch > qr.s ? launch : qr.s;
+  const oldAm = e.amStart, newAm = e.amEnd || e.amStart;
+  const major = !trIn ? newAm : (days(qr.s, new Date(trIn - DAY)) > days(qr.s, qr.e) / 2 ? oldAm : newAm);
+  return { qr, changed, tr: trIn, launch, notLaunched, start, oldAm, newAm, major,
+    needDate: changed && !trIn, needNew: !!e.isNew && (!launch || !e.tier) };
+}
+// list of [am, share] for a value of field k of project e, event date dt
+function attribute(e, k, dt) {
+  const ps = projState(e);
+  if (!ps) return [[e.amEnd || e.amStart, 1]];
+  if (ps.notLaunched && !PRELAUNCH.has(k)) return [];
+  if (REV.has(k)) {
+    if (!ps.tr) return [[ps.newAm, 1]];
+    const a = days(ps.start, new Date(ps.tr - DAY)), b = days(ps.tr > ps.start ? ps.tr : ps.start, ps.qr.e), t = a + b;
+    if (!t) return [[ps.newAm, 1]];
+    return [[ps.oldAm, a / t], [ps.newAm, b / t]].filter(x => x[1] > 0);
+  }
+  if (EVENT.has(k)) {
+    if (!ps.tr) return [[ps.newAm, 1]];
+    const d = toDate(dt);
+    if (d) { if (ps.launch && d < ps.launch) return []; return [[d < ps.tr ? ps.oldAm : ps.newAm, 1]]; }
+    return [[ps.major, 1]];
+  }
+  return [[ps.tr ? ps.major : ps.newAm, 1]];
+}
+// build / refresh the registry from the project-level rows of the documents
+function syncRegistry(prows) {
+  const prev = prevReg(), hasPrev = !!(prev && Object.keys(prev).length);
+  const seen = {};
+  for (const r of prows) {
+    const s = seen[r.key] || (seen[r.key] = { name: r.pr, ams: [], tier: "", fc: null });
+    if (!s.ams.some(x => norm(x) === norm(r.am))) s.ams.push(r.am);
+    if (r.tier && !s.tier) s.tier = r.tier;
+    if (r.vals.rev_fc != null) s.fc = (s.fc || 0) + r.vals.rev_fc;
+  }
+  for (const [key, s] of Object.entries(seen)) {
+    const p = prev && prev[key];
+    let e = st.reg[key];
+    if (!e) {
+      e = st.reg[key] = { name: s.name, amStart: "", amEnd: "", transfer: "", isNew: hasPrev && !p, launch: "", tier: "", fc: "", edited: false };
+    }
+    e.seen = s.ams.slice(); e.fileTier = s.tier; e.fileFc = s.fc;
+    if (!e.edited) {
+      const start = p ? (p.amEnd || p.amStart) : s.ams[0];
+      const other = s.ams.find(x => norm(x) !== norm(start));
+      e.amStart = start; e.amEnd = other || s.ams.find(x => norm(x) === norm(start)) || start;
+      if (e.isNew && !e.tier && s.tier) e.tier = s.tier;
+    }
+  }
+  // projects that disappeared from the documents stay only if the lead touched them
+  if (!(st.lightFiles && st.lightFiles.length)) for (const key of Object.keys(st.reg)) if (!seen[key] && !st.reg[key].edited) delete st.reg[key];
+}
+function applyFiles() {
+  // rebuild file-sourced values; keep manual entries
+  const live = new Set(st.files.map(f => f.name));
+  for (const am of st.ams) for (const k of Object.keys(am.src)) if (am.src[k] === "file" && (!am.from || !am.from[k] || live.has(am.from[k]))) { delete am.v[k]; delete am.src[k]; }
+  // pass 1: rows of every document; project-level rows are kept for attribution
+  const prows = [], perFile = [];
+  for (const fo of st.files) {
+    if (fo.map.am < 0) continue;
+    const sh = fo.sheets.find(s => s.name === fo.sheet); if (!sh) continue;
+    const sl = SLOTS.find(x => x.id === fo.slot) || SLOTS[SLOTS.length - 1];
+    const fl = slotFields(sl);
+    // a document with a quarter column (e.g. the launch summary): take only the rows of the selected quarter
+    const qi = fo.headers.findIndex(h => { const x = norm(h); return x.startsWith("квартал") || x === "период" || x === "месяц"; });
+    const pr0 = qRange(st.quarter); fo.skipped = 0;
+    // launch KPI is quarterly by the regulation: for a month the quarter's launch summary is the reference
+    const want = [norm(st.quarter)].concat(sl.id === "launch" && isMonth(st.quarter) ? [norm(quarterOf(st.quarter))] : []);
+    const rows = [];
+    for (const row of sh.rows.slice(fo.hr + 1)) {
+      const name = String(row[fo.map.am] ?? "").trim();
+      if (!name) continue;
+      if (qi >= 0 && norm(row[qi]) && !want.includes(norm(row[qi]))) { fo.skipped++; continue; }
+      if (fo.map.dt >= 0 && pr0) { const d = toDate(row[fo.map.dt]); if (d && (d < pr0.s || d > pr0.e)) { fo.skipped++; continue; } }
+      const vals = {}, yns = {};
+      for (const f of fl) {
+        const i = fo.map[f[0]]; if (i == null || i < 0) continue;
+        if (f[3] === "yn") { const y = yn(row[i]); if (y) yns[f[0]] = y; continue; }
+        const n = num(row[i]); if (n != null) vals[f[0]] = n;
+      }
+      let tier = "";
+      if (fo.map.tier >= 0) { const t = norm(row[fo.map.tier]).replace("tier", "").replace("тир", "").trim(); if (["1", "2", "3"].includes(t)) tier = t; }
+      const pr = fo.map.pr >= 0 ? String(row[fo.map.pr] ?? "").trim() : "";
+      const r = { am: name, pr, key: norm(pr), vals, yns, tier, dt: fo.map.dt >= 0 ? row[fo.map.dt] : null };
+      rows.push(r); if (pr) prows.push(r);
+    }
+    perFile.push({ fo, sl, fl, rows });
+  }
+  syncRegistry(prows);
+  // pass 2: aggregate by AM, project rows through the registry
+  for (const { fo, sl, fl, rows } of perFile) {
+    const acc = {};
+    const A = n => acc[n] || (acc[n] = { sums: {}, cnt: {}, last: {} });
+    const add = (n, k, x, w) => { const a = A(n); a.sums[k] = (a.sums[k] || 0) + x * w; a.cnt[k] = (a.cnt[k] || 0) + 1; };
+    const seenPr = new Set(), seenFc = new Set(), seenTier = new Set();
+    for (const r of rows) {
+      const e = r.pr ? st.reg[r.key] : null;
+      if (e) { seenPr.add(r.key); if (r.vals.rev_fc != null) seenFc.add(r.key); if (r.tier) seenTier.add(r.key); }
+      const who = k => e ? attribute(e, k, r.dt) : [[r.am, 1]];
+      for (const [k, x] of Object.entries(r.vals)) {
+        const avg = FMAP[k][5] === "avg";
+        for (const [n, w] of who(k)) add(n, k, x, avg ? 1 : w);
+      }
+      for (const [k, y] of Object.entries(r.yns)) for (const [n] of who(k)) A(n).last[k] = y;
+      const tier = r.tier || (e && e.isNew ? e.tier : "");
+      if (fo.map.tier >= 0 && tier) { const k = "t" + tier; for (const [n] of who(k)) add(n, k, 1, 1); }
+      // quality file with a row per QBR: number of assessed QBR = rows with a score
+      if (sl.countRows && !(fo.map[sl.countRows] >= 0) && r.vals.q_avg != null) for (const [n] of who("q_avg")) add(n, sl.countRows, 1, 1);
+    }
+    // a new project missing from a project-level document: Forecast and tier from the lead's answers
+    if (fo.map.pr >= 0) for (const [key, e] of Object.entries(st.reg)) {
+      if (!e.isNew) continue;
+      if (fo.map.rev_fc >= 0 && !seenFc.has(key) && num(e.fc) != null) for (const [n, w] of attribute(e, "rev_fc")) add(n, "rev_fc", num(e.fc), w);
+      if (fo.map.tier >= 0 && !seenTier.has(key) && !seenPr.has(key) && e.tier) for (const [n] of attribute(e, "t" + e.tier)) add(n, "t" + e.tier, 1, 1);
+    }
+    for (const [name, a] of Object.entries(acc)) {
+      let am = st.ams.find(x => norm(x.name) === norm(name));
+      if (!am) { am = { name, v: {}, src: {} }; st.ams.push(am); }
+      for (const f of fl.concat(["t1", "t2", "t3"].filter(k => !fl.some(x => x[0] === k)).map(k => FMAP[k]))) {
+        const k = f[0]; if (am.src[k] === "manual") continue;
+        if (k in a.last) { am.v[k] = a.last[k]; am.src[k] = "file"; (am.from || (am.from = {}))[k] = fo.name; continue; }
+        if (!(k in a.sums)) continue;
+        const val = f[5] === "avg" ? a.sums[k] / a.cnt[k] : a.sums[k];
+        am.v[k] = f[3] === "int" ? Math.round(val * 100) / 100 : Math.round(val * 100) / 100;
+        am.src[k] = "file"; (am.from || (am.from = {}))[k] = fo.name;
+      }
+    }
+  }
+}
+function regIssues() {
+  const out = { change: [], fresh: [], need: 0 };
+  for (const [key, e] of Object.entries(st.reg)) {
+    const ps = projState(e); if (!ps) continue;
+    if (ps.changed) { out.change.push(key); if (ps.needDate) out.need++; }
+    if (e.isNew) { out.fresh.push(key); if (ps.needNew) out.need++; }
+  }
+  return out;
+}
+
+// ---------- rendering ----------
+const $ = s => document.querySelector(s);
+function el(tag, attrs = {}, kids = []) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) { if (k === "text") e.textContent = v; else if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else if (v !== false && v != null) e.setAttribute(k, v === true ? "" : v); }
+  for (const k of [].concat(kids)) if (k != null) e.append(k);
+  return e;
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 3500); }
+
+function renderFiles() {
+  const box = $("#slots"); box.replaceChildren();
+  for (const sl of SLOTS) {
+    const inp = el("input", { type: "file", id: `file-${sl.id}`, multiple: true, accept: ".xlsx,.xls,.csv", "aria-label": `Файл: ${sl.label}`, onchange: e => { handleFiles([...e.target.files], sl.id); e.target.value = ""; } });
+    const dz = el("div", { class: "drop" }, [el("p", { class: "small", style: "margin:0 0 6px", text: "Перетащите документ или выберите" }), inp]);
+    dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("over"); });
+    dz.addEventListener("dragleave", () => dz.classList.remove("over"));
+    dz.addEventListener("drop", e => { e.preventDefault(); dz.classList.remove("over"); handleFiles([...e.dataTransfer.files], sl.id); });
+    const flist = el("div", { class: "flist" });
+    st.files.forEach((fo, idx) => {
+      if (fo.slot !== sl.id) return;
+      const fl = slotFields(sl);
+      const sheetSel = el("select", { id: `sheet-${idx}`, "aria-label": "Лист", onchange: e => { fo.sheet = e.target.value; setupSheet(fo); applyFiles(); renderAll(); } },
+        fo.sheets.map(x => el("option", { value: x.name, text: x.name, selected: x.name === fo.sheet })));
+      const opts = sel => [el("option", { value: -1, text: "- не брать -", selected: sel < 0 })].concat(fo.headers.map((h, i) => el("option", { value: i, text: h || `Колонка ${i + 1}`, selected: sel === i })));
+      const mk = (key, label) => el("label", {}, [label, el("select", { id: `map-${idx}-${key}`, onchange: e => { fo.map[key] = +e.target.value; applyFiles(); renderAll(); } }, opts(fo.map[key]))]);
+      const items = [mk("am", "AM (обязательно)")];
+      if (fo.slot !== "launch") items.push(mk("pr", "Проект (для сопоставления по проектам)"), mk("dt", "Дата события (QBR, follow-up)"));
+      if (sl.tier) items.push(mk("tier", "Tier проекта (строка на проект)"));
+      const grid = el("div", { class: "filemap" }, items.concat(fl.map(f => mk(f[0], f[1]))));
+      const mapped = fl.filter(f => fo.map[f[0]] >= 0).length + (fo.map.tier >= 0 ? 1 : 0);
+      flist.append(el("div", { class: "fitem" }, [
+        el("div", { class: "row" }, [el("b", { class: "grow small", text: fo.name }), sheetSel, el("button", { class: "btn ghost", text: "Убрать", onclick: () => { st.files.splice(idx, 1); applyFiles(); renderAll(); } })]),
+        el("span", { class: "small " + (fo.map.am < 0 || !mapped ? "" : "muted"), style: fo.map.am < 0 || !mapped ? "color:var(--red)" : "", text: fo.map.am < 0 ? "Не найдена колонка с AM - выберите ее в сопоставлении." : !mapped ? "Не найдено ни одной колонки блока - выберите их в сопоставлении." : `Сопоставлено колонок: ${mapped}.${fo.skipped ? ` Пропущено строк другого периода: ${fo.skipped}.` : ""} Проверьте и поправьте, если нужно.` }),
+        el("details", { open: fo.map.am < 0 || !mapped }, [el("summary", { class: "small", text: "Сопоставление колонок" }), grid])
+      ]));
+    });
+    box.append(el("div", { class: "card slot" }, [el("h3", { text: sl.label }), el("p", { class: "small muted", style: "margin:0", text: sl.hint }), dz, flist]));
+  }
+}
+function renderChips() {
+  const box = $("#amChips"); box.replaceChildren();
+  if (!st.ams.length) { box.append(el("span", { class: "muted small", text: "Пока нет AM: загрузите файл или добавьте вручную." })); return; }
+  st.ams.forEach((am, i) => box.append(el("span", { class: "chip z-n", text: am.name })));
+}
+function renderTh() {
+  const g = $("#thGrid"); g.replaceChildren();
+  // thresholds are agreed with the head of department: shown read-only, never edited here
+  TH_DEF.forEach(([k, label]) => g.append(el("label", {}, [label, el("b", { class: "num", style: "font-family:var(--f-mono);text-align:right", text: String(st.th[k]).replace(".", ",") })])));
+}
+function renderSurvey() {
+  const list = $("#amList"); list.replaceChildren();
+  if (!st.ams.length) { list.append(el("p", { class: "muted", text: "Нет AM. Вернитесь к шагу 1." })); $("#form").replaceChildren(); return; }
+  st.current = Math.min(st.current, st.ams.length - 1);
+  st.ams.forEach((am, i) => {
+    const r = calc(am);
+    list.append(el("button", { "aria-current": i === st.current ? "true" : "false", onclick: () => { st.current = i; renderSurvey(); } },
+      [el("span", { text: am.name }), r.missing.length ? el("span", { class: "chip z-r", text: `${r.missing.length}` }) : el("span", { class: "chip z-g", text: "готово" })]));
+  });
+  const am = st.ams[st.current], form = $("#form"); form.replaceChildren();
+  const nameIn = el("input", { type: "text", id: "amName", value: am.name, "aria-label": "Имя AM", onchange: e => { const n = e.target.value.trim(); if (n) { am.name = n; save(); renderSurvey(); renderChips(); } } });
+  form.append(el("div", { class: "row" }, [el("h2", { class: "grow", text: "Опрос по AM" }), nameIn,
+    el("button", { class: "btn ghost", text: "Удалить AM", onclick: () => { st.ams.splice(st.current, 1); save(); renderAll(); } })]));
+  for (const g of GROUPS) {
+    const fs = el("fieldset", {}, [el("legend", { text: g })]);
+    for (const f of FIELDS.filter(x => x[2] === g)) {
+      const [k, label, , kind, req] = f; const val = am.v[k];
+      const missing = req && num(val) == null;
+      let input;
+      if (kind === "yn") input = el("select", { id: `f-${k}`, onchange: e => setVal(am, k, e.target.value || null) }, [el("option", { value: "", text: "-" }), el("option", { value: "Да", text: "Да", selected: val === "Да" }), el("option", { value: "Нет", text: "Нет", selected: val === "Нет" })]);
+      else input = el("input", { type: "number", step: kind === "int" ? "1" : "any", min: "0", id: `f-${k}`, value: val ?? "", onchange: e => setVal(am, k, num(e.target.value)) });
+      fs.append(el("label", { class: "field" + (missing ? " missing" : ""), for: `f-${k}` }, [el("span", {}, [label + (req ? " *" : ""), am.src[k] === "file" ? el("span", { class: "src", text: "  из файла" }) : am.src[k] === "months" ? el("span", { class: "src", text: "  из месяцев" }) : null]), input]));
+    }
+    form.append(fs);
+  }
+  const r = calc(am);
+  form.append(el("div", { class: "row" }, [el("span", { class: "small muted", text: "Сейчас:" }), el("span", { class: "small", text: "KPI QBR" }), zoneChip(r.qbr), el("span", { class: "small", text: "Бонус:" }), el("b", { class: "small", text: r.bonus })]));
+  $("#prevAm").disabled = st.current === 0;
+  $("#nextAm").textContent = st.current === st.ams.length - 1 ? "К результату" : "Следующий AM";
+}
+function setVal(am, k, v) { if (v == null || v === "") { delete am.v[k]; delete am.src[k]; } else { am.v[k] = v; am.src[k] = "manual"; } save(); renderSurvey(); }
+
+const COLS = [
+  ["AM", r => r.name], ["Выручка, % Forecast", r => pct(r.revPct), "num"], ["Допуск выручки", r => r.revOk],
+  ["Покрытие QBR", r => pct(r.cov), "num"], ["Зона покрытия", r => r.covZone, "z"],
+  ["Качество (0-12)", r => r.q ?? "", "num"], ["Зона качества", r => r.qZone, "z"],
+  ["Нарушений follow-up", r => r.fu ?? "", "num"], ["Зона follow-up", r => r.fuZone, "z"],
+  ["Результат", r => pct(r.res), "num"], ["Зона результата", r => r.resZone, "z"],
+  ["KPI QBR", r => r.qbr, "z"], ["Health Score", r => r.hsZone, "z"], ["eNPS", r => r.enpsZone, "z"],
+  ["Запуск в срок", r => pct(r.lTime), "num"], ["Риски (из 6)", r => r.lRisk == null ? "" : fmt(r.lRisk), "num"], ["Точность прогноза", r => pct(r.lAcc), "num"],
+  ["Готовность и пост-запуск", r => pct(r.lReady), "num"], ["Зона запусков", r => r.lZone, "z"],
+  ["Добранных KPI", r => r.extra, "num"], ["Итог по бонусу", r => r.bonus], ["Лимит 50%", r => r.limOver ? "Превышен" : "ОК"],
+  ["Малый портфель", r => r.small ? "Применяется" : "-"], ["Сверка плана с тирами", r => r.planCheck]
+];
+// ---------- lead KPI from the team's AM results (lead competency model, block R) ----------
+const LEAD = { revMin: 0.8, redMax: 0, hsMin: 4, greenShare: 0.5 };
+function teamKpi(ams) {
+  const rs = ams.map(am => ({ am, r: calc(am) }));
+  const k = { n: rs.length };
+  const revKnown = rs.filter(x => x.r.revOk !== "");
+  k.revShare = revKnown.length ? revKnown.filter(x => x.r.revOk === "Да").length / revKnown.length : null;
+  const sum = key => rs.reduce((a, x) => a + (num(x.am.v[key]) ?? 0), 0);
+  k.revPct = sum("rev_fc") > 0 ? sum("rev_fact") / sum("rev_fc") : null;
+  const qKnown = rs.filter(x => ["Зеленая", "Желтая", "Красная"].includes(x.r.qbr));
+  k.red = rs.filter(x => x.r.qbr === "Красная").length;
+  k.greenShare = qKnown.length ? qKnown.filter(x => x.r.qbr === "Зеленая").length / qKnown.length : null;
+  const avg = key => { const v = rs.map(x => num(x.am.v[key])).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  k.hs = avg("hs"); k.enps = avg("enps");
+  // team launch KPI: the four indicators weighted by projects, then the agreed overall-zone rule
+  const L = rs.filter(x => x.r.lZone && x.r.lZone !== "Не применяется" && x.r.lTime != null);
+  if (!L.length) k.lZone = rs.some(x => x.r.lZone === "") ? "Нет данных" : "Не применяется";
+  else {
+    const w = x => num(x.am.v.l_n) || 1, W = L.reduce((a, x) => a + w(x), 0);
+    const wa = f => { const v = L.filter(x => x.r[f] != null); const ww = v.reduce((a, x) => a + w(x), 0); return ww ? v.reduce((a, x) => a + x.r[f] * w(x), 0) / ww : null; };
+    const T = st.th, t = wa("lTime"), zr = zone(wa("lRisk"), T.lrG, T.lrY), za = zone(wa("lAcc"), T.laG, T.laY), zc = zone(wa("lReady"), T.lcG, T.lcY), zt = zone(t, T.lG, T.lY);
+    const g = [zr, za, zc].filter(z => z === "Зеленая").length;
+    k.lZone = zt === "Зеленая" && g === 3 ? "Зеленая" : (zt !== "Красная" && g >= 2) ? "Желтая" : "Красная"; k.lW = W;
+  }
+  k.bonusFull = rs.filter(x => x.r.bonus === "Полный бонус").length; k.bonusHalf = rs.filter(x => x.r.bonus === "50% бонуса").length;
+  k.blockers = []; k.warnings = [];
+  if (k.revShare != null && k.revShare < LEAD.revMin) k.blockers.push(`доля AM с выручкой от 95% Forecast ${pct(k.revShare)} - ниже ${pct(LEAD.revMin)}`);
+  if (k.red > LEAD.redMax) k.blockers.push(`AM в красной зоне KPI QBR: ${k.red}`);
+  if (k.lZone === "Красная") k.warnings.push("KPI запусков команды в красной зоне");
+  if (k.hs != null && k.hs < LEAD.hsMin) k.warnings.push(`Health Score портфеля ${fmt(k.hs)} - ниже ${LEAD.hsMin}`);
+  if (k.greenShare != null && k.greenShare < LEAD.greenShare) k.warnings.push(`в зеленой зоне KPI QBR меньше половины AM (${pct(k.greenShare)})`);
+  k.status = !k.n ? "Нет данных" : k.blockers.length ? "Блокер повышения" : k.warnings.length ? "Есть предупреждения" : "Без блокеров";
+  return k;
+}
+const LEAD_COLS = [["AM в команде", k => k.n], ["Выручка команды от Forecast", k => pct(k.revPct)], ["Доля AM с выручкой от 95%", k => pct(k.revShare)],
+  ["AM в красной зоне QBR", k => k.n ? k.red : ""], ["Доля AM в зеленой зоне QBR", k => pct(k.greenShare)], ["Зона запусков команды", k => k.lZone],
+  ["Health Score портфеля", k => fmt(k.hs)], ["eNPS команды", k => fmt(k.enps)], ["Полный бонус / 50%", k => k.n ? `${k.bonusFull} / ${k.bonusHalf}` : ""],
+  ["Статус для модели лида", k => k.status], ["Блокеры и предупреждения", k => k.blockers.concat(k.warnings).join("; ")]];
+function renderLead() {
+  const k = teamKpi(st.ams), box = $("#leadTiles"); box.replaceChildren();
+  LEAD_COLS.slice(0, 9).forEach(([l, f]) => { const v = f(k); box.append(el("div", { class: "tile" }, [/зона/i.test(l) ? zoneChip(v) : el("b", { text: v === "" || v == null ? "-" : v }), el("span", { class: "small muted", text: l })])); });
+  const fl = $("#leadFlags"); fl.replaceChildren(el("b", { text: `${k.status}. ` }));
+  if (k.blockers.length) fl.append(el("span", { style: "color:var(--red)", text: "Блокеры: " + k.blockers.join("; ") + ". " }));
+  if (k.warnings.length) fl.append(el("span", { text: "Предупреждения: " + k.warnings.join("; ") + "." }));
+  if (k.n && !k.blockers.length && !k.warnings.length) fl.append(el("span", { class: "muted", text: "Показатели команды не мешают повышению лида." }));
+  $("#leadsBtn").hidden = !(cloud.admin && cloud.ok);
+}
+async function loadLeads() {
+  const wrap = $("#leadsWrap"), t = $("#leadsTable"); wrap.hidden = false; t.replaceChildren(el("tbody", {}, el("tr", {}, el("td", { class: "muted", text: "Загружаю данные команд..." }))));
+  const rows = [];
+  const own = cloud.mine[st.quarter]; rows.push(["Моя команда", own ? teamKpi(own.ams || []) : null]);
+  for (const tm of cloud.teams) {
+    let d = null; try { const snap = await cloud.db.doc(`teams/${tm.id}/quarters/${qid(st.quarter)}`).get(); d = snap.exists ? snap.data() : null; } catch (e) {}
+    rows.push([teamName(tm.id), d ? teamKpi(d.ams || []) : null]);
+  }
+  st.leadRows = rows.map(([n, k]) => [n].concat(LEAD_COLS.map(c => k ? c[1](k) : "")));
+  t.replaceChildren(el("thead", {}, el("tr", {}, ["Лид"].concat(LEAD_COLS.map(c => c[0])).map(h => el("th", { text: h })))),
+    el("tbody", {}, rows.map(([n, k]) => el("tr", {}, [el("td", { text: n })].concat(k ? LEAD_COLS.map(c => { const v = c[1](k); return /Зона/.test(c[0]) ? el("td", {}, zoneChip(v)) : el("td", { text: v }); }) : [el("td", { colspan: LEAD_COLS.length, class: "muted", text: `Нет данных за ${st.quarter}` })])))));
+}
+function renderResult() {
+  renderLead();
+  const rs = st.ams.map(am => ({ am, r: calc(am) }));
+  const cnt = b => rs.filter(x => x.r.bonus === b).length;
+  const tiles = $("#tiles"); tiles.replaceChildren();
+  [["AM в расчете", rs.length], ["Полный бонус", cnt("Полный бонус")], ["50% бонуса", cnt("50% бонуса")],
+   ["Бонуса нет", rs.filter(x => x.r.bonus.startsWith("Бонуса нет")).length], ["Решение лида / нет данных", rs.filter(x => x.r.bonus.startsWith("Решение") || x.r.bonus === "Нет данных").length]]
+    .forEach(([l, n]) => tiles.append(el("div", { class: "tile" }, [el("b", { text: n }), el("span", { class: "small muted", text: l })])));
+  const t = $("#resTable"); t.replaceChildren();
+  t.append(el("thead", {}, el("tr", {}, COLS.map(c => el("th", { text: c[0] })))));
+  const tb = el("tbody");
+  for (const { r } of rs) tb.append(el("tr", {}, COLS.map(c => { const v = c[1](r); if (c[2] === "z") return el("td", {}, zoneChip(v)); return el("td", { class: c[2] === "num" ? "num" : "", text: v }); })));
+  if (!rs.length) tb.append(el("tr", {}, el("td", { colspan: COLS.length, class: "muted", text: "Нет AM для расчета." })));
+  t.append(tb);
+  const adv = $("#advice"); adv.replaceChildren();
+  rs.forEach(({ am, r }, i) => {
+    const items = advice(am, r);
+    const aiBox = el("div", { class: "ai", hidden: !st.ai[am.name] }); if (st.ai[am.name]) aiBox.textContent = st.ai[am.name];
+    const aiBtn = el("button", { class: "btn ghost", text: "Разобрать с Claude", onclick: () => askClaude(am, r, items, aiBox, aiBtn) });
+    aiBtn.hidden = !sampleNs;
+    adv.append(el("div", { class: "adv " + bonusClass(r.bonus) }, [
+      el("div", { class: "row" }, [el("h3", { class: "grow", text: am.name }), zoneChip(r.qbr), el("b", { class: "small", text: r.bonus }), aiBtn]),
+      el("ul", {}, items.map(s => el("li", { text: s }))), aiBox
+    ]));
+  });
+}
+function renderProjects() {
+  const box = $("#projBox"), keys = Object.keys(st.reg);
+  box.hidden = !keys.length; if (!keys.length) return;
+  const iss = regIssues();
+  $("#projSum").replaceChildren(el("span", { text: `Проектов: ${keys.length}. Смена AM: ${iss.change.length}. Новых: ${iss.fresh.length}.` }),
+    iss.need ? el("span", { style: "color:var(--red)", text: ` Нужно заполнить: ${iss.need} - до этого проект считается целиком на AM на конец квартала.` }) : el("span", { class: "muted", text: " Все данные по проектам заполнены." }));
+  const amNames = [...new Set(st.ams.map(a => a.name).concat(...keys.map(k => st.reg[k].seen || [])))];
+  const upd = (e, patch) => { Object.assign(e, patch, { edited: true }); applyFiles(); renderAll(); };
+  const amSel = (e, field, label) => el("select", { "aria-label": `${label}: ${e.name}`, onchange: ev => upd(e, { [field]: ev.target.value }) },
+    amNames.map(n => el("option", { value: n, selected: norm(n) === norm(e[field]), text: n })));
+  const row = (key, mode) => {
+    const e = st.reg[key], ps = projState(e) || {};
+    const tags = [];
+    if (ps.changed) tags.push(el("span", { class: "ptag" + (ps.needDate ? " warn" : ""), text: ps.needDate ? "смена AM: нужна дата" : "смена AM" }));
+    if (e.isNew) tags.push(el("span", { class: "ptag" + (ps.needNew ? " warn" : ""), text: ps.notLaunched ? "новый, не запущен" : "новый" }));
+    const tr = el("input", { type: "date", value: e.transfer || "", class: ps.needDate ? "need" : "", "aria-label": `Дата передачи: ${e.name}`, onchange: ev => upd(e, { transfer: ev.target.value }) });
+    const nw = el("input", { type: "checkbox", checked: !!e.isNew, "aria-label": `Новый проект: ${e.name}`, onchange: ev => upd(e, { isNew: ev.target.checked }) });
+    const la = el("input", { type: "date", value: e.launch || "", disabled: !e.isNew, class: e.isNew && !e.launch ? "need" : "", "aria-label": `Дата запуска: ${e.name}`, onchange: ev => upd(e, { launch: ev.target.value }) });
+    const ti = el("select", { disabled: !e.isNew, class: e.isNew && !e.tier ? "need" : "", "aria-label": `Tier: ${e.name}`, onchange: ev => upd(e, { tier: ev.target.value }) },
+      [["", "-"], ["1", "Tier 1"], ["2", "Tier 2"], ["3", "Tier 3"]].map(([v, t]) => el("option", { value: v, selected: String(e.tier || "") === v, text: t })));
+    const fc = el("input", { type: "number", step: "any", value: e.fc ?? "", disabled: !e.isNew, placeholder: e.fileFc != null ? `из файла ${fmt(e.fileFc)}` : "", "aria-label": `Forecast выручки, тыс.: ${e.name}`, onchange: ev => upd(e, { fc: ev.target.value }) });
+    let share = "";
+    if (ps.tr) { const w = attribute(e, "rev_fact"); share = w.map(([n, x]) => `${n} ${Math.round(x * 100)}%`).join(", ") + `; HS, eNPS и прочее - ${ps.major}`; }
+    else if (ps.notLaunched) share = "до запуска: только Health Score и eNPS";
+    return el("tr", {}, [el("td", {}, [el("div", { text: e.name }), el("div", {}, tags)]), el("td", {}, amSel(e, "amStart", "AM на начало квартала")), el("td", {}, amSel(e, "amEnd", "AM на конец квартала")), el("td", {}, tr),
+      el("td", { style: "text-align:center" }, nw), el("td", {}, la), el("td", {}, ti), el("td", {}, fc), el("td", { class: "small muted", text: share })]);
+  };
+  const head = el("tr", {}, ["Проект", "AM на начало", "AM на конец", "Дата передачи", "Новый", "Дата запуска", "Tier", "Forecast, тыс.", "Как делится"].map(t => el("th", { text: t })));
+  const issueKeys = [...new Set(iss.change.concat(iss.fresh))];
+  $("#projIssues").replaceChildren(issueKeys.length ? el("div", { class: "tablewrap" }, el("table", { class: "ptab" }, [el("thead", {}, head), el("tbody", {}, issueKeys.map(k => row(k)))])) : "");
+  const all = el("table", { class: "ptab" }, [el("thead", {}, head.cloneNode(true)), el("tbody", {}, keys.sort((a, b) => st.reg[a].name.localeCompare(st.reg[b].name, "ru")).map(k => row(k)))]);
+  $("#projTable").replaceWith(Object.assign(all, { id: "projTable" }));
+}
+// ---------- quarter from its months ----------
+const SNAP = new Set(["t1", "t2", "t3", "ladder", "has_launch", "l_n", "l_time", "l_risk", "l_acc", "l_ready"]);  // snapshot / quarterly values: last month wins
+function periodData(p) { return cloud.view ? cloud.view.data[p] : readAll().quarters[p]; }
+function buildFromMonths() {
+  const ms = monthsOf(st.quarter).map(m => [m, periodData(m)]).filter(x => x[1] && (x[1].ams || []).length);
+  if (!ms.length) { toast("Нет сохраненных месяцев этого квартала"); return; }
+  clearExample();
+  const agg = {};
+  for (const [, d] of ms) for (const a of d.ams) {
+    const g = agg[norm(a.name)] || (agg[norm(a.name)] = { name: a.name, v: {} });
+    for (const f of FIELDS) {
+      const k = f[0], x = a.v[k]; if (x == null || x === "") continue;
+      const c = g.v[k] || (g.v[k] = { sum: 0, n: 0, w: 0, ws: 0, last: null });
+      c.last = x; const n = num(x); if (n == null) continue;
+      c.sum += n; c.n++;
+      if (k === "q_avg") { const w = num(a.v.q_n) || 1; c.w += w; c.ws += n * w; }
+    }
+  }
+  for (const g of Object.values(agg)) {
+    let am = st.ams.find(x => norm(x.name) === norm(g.name));
+    if (!am) { am = { name: g.name, v: {}, src: {} }; st.ams.push(am); }
+    for (const [k, c] of Object.entries(g.v)) {
+      if (am.src[k] === "manual") continue;
+      const f = FMAP[k];
+      am.v[k] = SNAP.has(k) || f[3] === "yn" ? c.last : k === "q_avg" ? Math.round(c.ws / c.w * 100) / 100 : f[5] === "avg" ? Math.round(c.sum / c.n * 100) / 100 : Math.round(c.sum * 100) / 100;
+      am.src[k] = "months";
+    }
+  }
+  for (const [, d] of ms) for (const [key, e] of Object.entries(d.reg || {})) if (!st.reg[key]) st.reg[key] = JSON.parse(JSON.stringify(e));
+  renderAll(); toast(`Квартал собран из месяцев: ${ms.map(x => x[0].split(" ")[0]).join(", ")}`);
+}
+function renderPeriod() {
+  const n = $("#periodNote"), m = isMonth(st.quarter);
+  n.hidden = !m; if (m) n.textContent = `${st.quarter} - промежуточный контроль. Итог по бонусу здесь ориентир: бонус по регламенту считается за квартал (${quarterOf(st.quarter)}). KPI по запускам берется квартальный.`;
+  const b = $("#fromMonths"), q = !m && !cloud.view;
+  const have = q ? monthsOf(st.quarter).filter(x => { const d = periodData(x); return d && (d.ams || []).length; }) : [];
+  b.hidden = !have.length; b.textContent = `Собрать квартал из месяцев (${have.length} из 3)`;
+}
+function renderAll() { $("#exampleBadge").hidden = !st.example; renderPeriod(); renderFiles(); renderProjects(); renderChips(); renderSurvey(); renderResult(); save(); renderStoreInfo(); }
+
+// ---------- export ----------
+let dl = null, sampleNs = null;
+// outside claude.ai (e.g. a static host) there is no downloads capability: fall back to a plain browser download
+async function saveFile(filename, data) {
+  if (dl) return dl.save({ filename, data });
+  const url = URL.createObjectURL(new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+  const a = document.createElement("a"); a.href = url; a.download = filename; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+async function exportXlsx() {
+  if (!dl && window.claude) { toast("Скачивание недоступно в этом окне. Откройте страницу в claude.ai."); return; }
+  const rs = st.ams.map(am => ({ am, r: calc(am) }));
+  const wb = XLSX.utils.book_new();
+  const head = ["Период"].concat(COLS.map(c => c[0]));
+  const rows = rs.map(({ r }) => [st.quarter].concat(COLS.map(c => c[1](r))));
+  const ws1 = XLSX.utils.aoa_to_sheet([head].concat(rows)); ws1["!cols"] = head.map((h, i) => ({ wch: i === 1 ? 26 : 16 }));
+  XLSX.utils.book_append_sheet(wb, ws1, "Расчет");
+  const inHead = ["AM"].concat(FIELDS.map(f => f[1]));
+  const ws2 = XLSX.utils.aoa_to_sheet([inHead].concat(st.ams.map(am => [am.name].concat(FIELDS.map(f => am.v[f[0]] ?? ""))))); ws2["!cols"] = inHead.map(() => ({ wch: 18 }));
+  XLSX.utils.book_append_sheet(wb, ws2, "Исходные данные");
+  const advRows = [["AM", "Итог по бонусу", "Что сделать"]];
+  rs.forEach(({ am, r }) => advice(am, r).forEach((s, j) => advRows.push([j ? "" : am.name, j ? "" : r.bonus, s])));
+  const ws3 = XLSX.utils.aoa_to_sheet(advRows); ws3["!cols"] = [{ wch: 26 }, { wch: 28 }, { wch: 120 }];
+  XLSX.utils.book_append_sheet(wb, ws3, "Советы");
+  const lk = teamKpi(st.ams), lrows = [["Показатель", "Значение"]].concat(LEAD_COLS.map(c => [c[0], c[1](lk)]));
+  if (st.leadRows && st.leadRows.length) { lrows.push([], ["Сводка по лидам"], ["Лид"].concat(LEAD_COLS.map(c => c[0]))); st.leadRows.forEach(r => lrows.push(r)); }
+  const ws5 = XLSX.utils.aoa_to_sheet(lrows); ws5["!cols"] = [{ wch: 34 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, ws5, "KPI лида");
+  const ws4 = XLSX.utils.aoa_to_sheet([["Порог", "Значение"]].concat(TH_DEF.map(t => [t[1], st.th[t[0]]]))); ws4["!cols"] = [{ wch: 50 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, ws4, "Пороги");
+  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  try { await saveFile(`KPI-AM-${st.quarter.replace(" ", "-")}.xlsx`, new Uint8Array(buf)); toast("Файл сохранен"); }
+  catch (e) { if (e && e.code === "declined") return; toast(e && e.code === "rate_limited" ? "Окно сохранения уже открыто" : "Не удалось сохранить файл"); }
+}
+async function downloadTemplate() {
+  if (!dl && window.claude) { toast("Скачивание недоступно в этом окне. Откройте страницу в claude.ai."); return; }
+  const wb = XLSX.utils.book_new();
+  const head = ["AM"].concat(FIELDS.map(f => f[1]));
+  const ex = exampleAms()[0];
+  const ws = XLSX.utils.aoa_to_sheet([head, [ex.name].concat(FIELDS.map(f => ex.v[f[0]] ?? ""))]);
+  ws["!cols"] = head.map(() => ({ wch: 18 }));
+  XLSX.utils.book_append_sheet(wb, ws, "Ввод");
+  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  try { await saveFile("KPI-AM-shablon-importa.xlsx", new Uint8Array(buf)); toast("Шаблон сохранен"); } catch (e) { if (e && e.code !== "declined") toast("Не удалось сохранить файл"); }
+}
+
+// ---------- Claude advice ----------
+async function askClaude(am, r, items, box, btn) {
+  if (!sampleNs) return;
+  btn.disabled = true; box.hidden = false; box.textContent = "Claude думает...";
+  const data = FIELDS.map(f => `${f[1]}: ${am.v[f[0]] ?? "нет данных"}`).join("\n");
+  const prompt = `Ты помогаешь тимлиду отдела Account Management (iGaming, покер и казино-платформа) подготовиться к 1:1 с AM по итогам ${isMonth(st.quarter) ? "месяца" : "квартала"} ${st.quarter}${isMonth(st.quarter) ? " (промежуточный контроль: бонус считается по кварталу)" : ""}.
+KPI считается так: выручка не ниже ${pct(st.th.rev)} Forecast - допуск к бонусу; KPI QBR составной (покрытие QBR с ЛПР, качество по чек-листу из 12 баллов, follow-up до конца следующего рабочего дня, результат - закрытые договоренности и фичи, доведенные до анализа); добранные KPI - Health Score от ${st.th.hs}, eNPS от ${st.th.enps}, запуски в срок 150 дней.
+Данные AM:\n${data}
+Итог расчета: KPI QBR - ${r.qbr}; бонус - ${r.bonus}.
+Уже сформулированные выводы:\n- ${items.join("\n- ")}
+Напиши план разговора и действий для лида на следующий квартал: 3-5 конкретных шагов с метрикой и сроком, по приоритету влияния на бонус. Без вступления, по-русски, коротко. Используй короткий дефис вместо длинного тире.`;
+  try {
+    const res = await sampleNs(prompt, { modelTier: "default", onText: ({ text }) => { box.textContent = text; } });
+    st.ai[am.name] = res.text; box.textContent = res.text; save();
+  } catch (e) {
+    if (e && e.code === "not_granted") { box.hidden = true; btn.hidden = true; }
+    else box.textContent = e && e.code === "rate_limited" ? "Слишком много запросов, попробуйте через минуту." : "Не удалось получить ответ.";
+  } finally { btn.disabled = false; }
+}
+
+// ---------- wiring ----------
+function go(step) {
+  for (const s of ["data", "survey", "result"]) { $(`#step-${s}`).hidden = s !== step; $(`#tab-${s}`).setAttribute("aria-selected", s === step); }
+  if (step === "survey") renderSurvey(); if (step === "result") renderResult();
+  window.scrollTo({ top: 0 });
+}
+document.querySelectorAll(".steps button").forEach(b => b.addEventListener("click", () => go(b.dataset.step)));
+document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => go(b.dataset.go)));
+$("#prevAm").addEventListener("click", () => { if (st.current > 0) { st.current--; renderSurvey(); } });
+$("#nextAm").addEventListener("click", () => { if (st.current < st.ams.length - 1) { st.current++; renderSurvey(); window.scrollTo({ top: 0 }); } else go("result"); });
+function clearExample() { if (st.example) { st.ams = []; st.files = []; st.example = false; st.ai = {}; st.reg = {}; } }
+async function handleFiles(list, slotId) {
+  if (!list.length) return;
+  clearExample();
+  for (const f of list) { try { await readFile(f, slotId); } catch (e) { toast(`${f.name}: не удалось прочитать файл`); } }
+  applyFiles(); renderAll();
+  toast(`Загружено файлов: ${list.length}. AM в расчете: ${st.ams.length}`);
+}
+$("#addAm").addEventListener("click", () => { const n = $("#newAm").value.trim(); if (!n) return; clearExample(); if (!st.ams.some(a => norm(a.name) === norm(n))) st.ams.push({ name: n, v: {}, src: {} }); $("#newAm").value = ""; st.current = st.ams.length - 1; renderAll(); go("survey"); });
+let clearArmed = 0;
+$("#clearAll").addEventListener("click", e => {
+  // two-step confirm inside the page (dialogs are not available here)
+  if (Date.now() - clearArmed > 4000) { clearArmed = Date.now(); e.target.textContent = "Нажмите еще раз, чтобы удалить " + st.quarter; setTimeout(() => { e.target.textContent = "Очистить квартал"; }, 4000); return; }
+  clearArmed = 0; e.target.textContent = "Очистить квартал";
+  st.ams = []; st.files = []; st.example = false; st.ai = {}; st.reg = {}; st.lightFiles = []; renderAll(); toast(`Данные ${st.quarter} удалены`);
+});
+$("#exportBtn").addEventListener("click", exportXlsx);
+$("#tplBtn").addEventListener("click", downloadTemplate);
+const qs = $("#quarter"); quarters().forEach(q => qs.append(el("option", { value: q, text: q })));
+qs.addEventListener("change", () => {
+  if (!st.example) save();           // keep the quarter we leave
+  st.quarter = qs.value; loadQuarter(st.quarter); st.leadRows = null; $("#leadsWrap").hidden = true;
+  renderAll(); toast(st.ams.length ? `Загружены сохраненные данные ${st.quarter}` : `${st.quarter}: данных пока нет`);
+});
+
+const ALL0 = readAll();
+st.quarter = ALL0.current || Object.keys(ALL0.quarters).sort().pop() || "Q1 2027";
+loadQuarter(st.quarter);
+if (!Object.keys(ALL0.quarters).length) { st.ams = exampleAms(); st.example = true; }
+st.th = Object.fromEntries(TH_DEF.map(t => [t[0], t[2]]));  // always the agreed values, never a stored copy
+qs.value = st.quarter;
+if (st.lightFiles && st.lightFiles.length) setTimeout(() => toast(`Без строк сохранены документы: ${st.lightFiles.join(", ")}. Значения AM на месте; чтобы пересопоставить колонки, загрузите их заново.`), 400);
+renderTh(); renderAll();
+$("#fromMonths").addEventListener("click", buildFromMonths);
+$("#leadsBtn").addEventListener("click", loadLeads);
+$("#team").addEventListener("change", e => viewTeam(e.target.value));
+cloudInit();
+if (window.claude && window.claude.use) {
+  window.claude.use("downloads").then(ns => { dl = ns; $("#exportBtn").disabled = !ns; $("#tplBtn").disabled = !ns; });
+  window.claude.use("sample").then(ns => { sampleNs = ns; renderResult(); });
+}
+})();
+</script>
+
+</body>
+</html>

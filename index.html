@@ -231,8 +231,8 @@ const FIELDS = [
   ["agr_closed", "Из них закрыто", "Результат", "int", false, "sum", ["закрыто"]],
   ["feat_total", "Фич со сроком анализа в квартале", "Результат", "int", false, "sum", ["фич со сроком", "фич", "features"]],
   ["feat_done", "Из них доведено до анализа в срок", "Результат", "int", false, "sum", ["доведено", "до анализа"]],
-  ["hs", "Health Score, балл 1-5", "Health Score и eNPS", "num", false, "avg", ["health score", "health", "hs"]],
-  ["enps", "eNPS", "Health Score и eNPS", "num", false, "avg", ["enps", "nps"]],
+  ["hs", "Health Score, балл 1-5", "Health Score", "num", false, "avg", ["health score", "health", "hs"]],
+  ["enps", "eNPS", "eNPS", "num", false, "avg", ["enps", "nps"]],
   ["has_launch", "Есть незапущенные проекты в пределах срока на начало квартала", "Запуски", "yn", false, "last", ["незапущенные", "есть запуски"]],
   ["l_n", "Проектов в расчете KPI запусков", "Запуски", "int", false, "sum", ["проектов в расчете", "проектов в расчёте"]],
   ["l_time", "1. Запуск в срок, % проектов", "Запуски", "num", false, "avg", ["запуск в срок"]],
@@ -243,7 +243,8 @@ const FIELDS = [
 const FMAP = Object.fromEntries(FIELDS.map(f => [f[0], f]));
 const SLOTS = [
   { id: "rev", label: "Выручка и Forecast", hint: "Факт выручки (Rake + GGR) и ожидаемая по Forecast за квартал, по AM или по проектам", fields: ["rev_fact", "rev_fc"] },
-  { id: "hs", label: "Health Score и eNPS", hint: "Health Score (1-5) и eNPS по проектам или по AM", fields: ["hs", "enps"] },
+  { id: "hs", label: "Health Score", hint: "Health Score (1-5) по проектам или по AM. Подойдет таблица с колонкой на месяц, например «KPI Sep-26»", fields: ["hs"], wide: { field: "hs", prefixes: ["kpi", "hs", "healthscore", "health"] } },
+  { id: "enps", label: "eNPS", hint: "eNPS по проектам или по AM. Подойдет таблица с колонкой на месяц, например «eNPS Sep-26»", fields: ["enps"], wide: { field: "enps", prefixes: ["enps", "nps", "kpi"] } },
   { id: "qbr", label: "QBR: план, факт, follow-up, результат", hint: "Плановые и проведенные QBR, зачет 50%, тиры, нарушения follow-up, договоренности и фичи. Подойдет и сводка из целевого плана QBR", fields: ["t1", "t2", "t3", "plan", "held", "half", "ladder", "fu_viol", "agr_total", "agr_closed", "feat_total", "feat_done"], tier: true },
   { id: "q", label: "Качество QBR", hint: "Баллы по чек-листу: строка на QBR (балл 0-12) или средний балл по AM", fields: ["q_avg", "q_n"], countRows: "q_n" },
   { id: "launch", label: "Запуски", hint: "Лист «Сводка» из таблицы KPI-zapuski-raschet: четыре показателя по AM (берутся строки выбранного квартала)", fields: ["has_launch", "l_n", "l_time", "l_risk", "l_acc", "l_ready"] },
@@ -548,6 +549,7 @@ function setupSheet(fo) {
   fo.map.dt = fo.map.pr >= 0 ? dateCol(fo.headers) : -1;
   for (const f of fl) fo.map[f[0]] = guessCol(fo.headers, f);
   if (isRevSlot(sl) && wideRevCols(fo.headers)) { fo.map.rev_fact = -1; fo.map.rev_fc = -1; }
+  if (sl.wide && wideScoreCols(fo.headers, sl.wide.prefixes)) fo.map[sl.wide.field] = -1;
   // a column named just "Tier"/"Тир" is a per-project tier, not a count of Tier 1/2/3 projects
   if (fo.map.tier >= 0 && ["t1", "t2", "t3"].some(k => fo.map[k] === fo.map.tier)) fo.map.tier = -1;
   // avoid one column feeding two fields
@@ -593,6 +595,23 @@ function wideRev(row, wide, months) {
   return out;
 }
 const isRevSlot = sl => sl.id === "rev" || sl.id === "all";
+// score table with a column per month: "KPI Sep-26", "HS Oct-26", "eNPS 2026-09"
+function wideScoreCols(headers, prefixes) {
+  const out = {};
+  headers.forEach((h, i) => {
+    let x = norm(h).replace(/\s+/g, "");
+    const pre = prefixes.find(p => x.startsWith(p)); if (!pre) return;
+    x = x.slice(pre.length).replace(/^[-_:]/, "");
+    let m, mo, y;
+    if ((m = x.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-'/]?(\d{2}|\d{4})$/))) { mo = MON_EN.indexOf(m[1]) + 1; y = +m[2]; }
+    else if ((m = x.match(/^(\d{1,2})[/.-](\d{2}|\d{4})$/))) { mo = +m[1]; y = +m[2]; }
+    else if ((m = x.match(/^(\d{4})[-/.](\d{1,2})$/))) { mo = +m[2]; y = +m[1]; }
+    else { const r = monthOf(x.replace(/(\D)(\d{4})$/, "$1 $2")); if (!r) return; mo = r.i + 1; y = r.y; }
+    if (!mo || mo > 12) return; if (y < 100) y += 2000;
+    const key = `${y}-${String(mo).padStart(2, "0")}`; if (out[key] == null) out[key] = i;
+  });
+  return Object.keys(out).length ? out : null;
+}
 function extraCol(headers, keys) { const hs = headers.map(h => norm(h).replace(/\s+/g, "")); return hs.findIndex(h => keys.includes(h)); }
 
 // ---------- projects: matching by project and AM, AM change, new projects ----------
@@ -715,6 +734,9 @@ function applyFiles() {
     const wide = isRevSlot(sl) && !(fo.map.rev_fact >= 0 || fo.map.rev_fc >= 0) ? wideRevCols(fo.headers) : null;
     const months = wide ? periodMonths(st.quarter) : [];
     fo.wideInfo = wide ? { months: months.length, found: months.filter(m => wide[m]).length, fact: 0 } : null;
+    const ws = sl.wide && !(fo.map[sl.wide.field] >= 0) ? wideScoreCols(fo.headers, sl.wide.prefixes) : null;
+    const wsMonths = ws ? periodMonths(st.quarter).filter(m => ws[m] != null) : [];
+    fo.scoreInfo = ws ? { field: sl.wide.field, months: periodMonths(st.quarter).length, found: wsMonths.length, cols: wsMonths.map(m => fo.headers[ws[m]]), rows: 0 } : null;
     const iLaunch = extraCol(fo.headers, ["launchdate", "датазапуска", "golive", "go-livedate"]);
     const iTeam = extraCol(fo.headers, ["team", "команда", "лид", "teamlead", "тимлид", "teamleader", "lead"]);
     const iTierP = fo.map.tier >= 0 ? fo.map.tier : extraCol(fo.headers, ["tier", "тир"]);
@@ -728,6 +750,11 @@ function applyFiles() {
         const i = fo.map[f[0]]; if (i == null || i < 0) continue;
         if (f[3] === "yn") { const y = yn(row[i]); if (y) yns[f[0]] = y; continue; }
         const n = num(row[i]); if (n != null) vals[f[0]] = n;
+      }
+      if (ws) {
+        // a project's score for the period: the average of its months (one month for a monthly period)
+        const xs = wsMonths.map(m => num(row[ws[m]])).filter(x => x != null);
+        if (xs.length) { vals[sl.wide.field] = xs.reduce((a, b) => a + b, 0) / xs.length; fo.scoreInfo.rows++; }
       }
       if (wide) { const ld = iLaunch >= 0 ? toDate(row[iLaunch]) : null;
         // revenue counts from the launch date: months that end before the launch are left out
@@ -829,8 +856,11 @@ function renderFiles() {
       if (fo.slot !== "launch") items.push(mk("pr", "Проект (для сопоставления по проектам)"), mk("dt", "Дата события (QBR, follow-up)"));
       if (sl.tier) items.push(mk("tier", "Tier проекта (строка на проект)"));
       const grid = el("div", { class: "filemap" }, items.concat(fl.map(f => mk(f[0], f[1]))));
+      if (fo.scoreInfo) grid.prepend(el("p", { class: "small", style: "grid-column:1/-1;margin:0", text: fo.scoreInfo.found
+        ? `Помесячная таблица ${fo.scoreInfo.field === "hs" ? "Health Score" : "eNPS"}: для ${st.quarter} взяты колонки ${fo.scoreInfo.cols.map(c => `«${c}»`).join(", ")}, строк со значением: ${fo.scoreInfo.rows}. Значение проекта за квартал - среднее по месяцам, значение AM - среднее по его проектам.`
+        : `Помесячная таблица ${fo.scoreInfo.field === "hs" ? "Health Score" : "eNPS"}: для ${st.quarter} нет колонки месяца. Выберите период, за который есть данные, или колонку вручную ниже.` }));
       if (fo.wideInfo) grid.prepend(el("p", { class: "small", style: "grid-column:1/-1;margin:0", text: `Помесячная таблица выручки: для ${st.quarter} найдено месяцев ${fo.wideInfo.found} из ${fo.wideInfo.months}, факт есть за ${fo.wideInfo.fact}. Факт - колонки «fact» (до появления отдельного факта - «Total»), Forecast - «Forecast», «Goal» или «...F», Rake не используется. Если факт есть не за все месяцы, Forecast сравнивается только за месяцы с фактом.` }));
-      const mapped = fl.filter(f => fo.map[f[0]] >= 0).length + (fo.map.tier >= 0 ? 1 : 0) + (fo.wideInfo && fo.wideInfo.found ? 2 : 0);
+      const mapped = fl.filter(f => fo.map[f[0]] >= 0).length + (fo.map.tier >= 0 ? 1 : 0) + (fo.wideInfo && fo.wideInfo.found ? 2 : 0) + (fo.scoreInfo && fo.scoreInfo.found ? 1 : 0);
       flist.append(el("div", { class: "fitem" }, [
         el("div", { class: "row" }, [el("b", { class: "grow small", text: fo.name }), sheetSel, el("button", { class: "btn ghost", text: "Убрать", onclick: () => { st.files.splice(idx, 1); applyFiles(); renderAll(); } })]),
         el("span", { class: "small " + (fo.map.am < 0 || !mapped ? "" : "muted"), style: fo.map.am < 0 || !mapped ? "color:var(--red)" : "", text: fo.map.am < 0 ? "Не найдена колонка с AM - выберите ее в сопоставлении." : !mapped ? "Не найдено ни одной колонки блока - выберите их в сопоставлении." : `Сопоставлено колонок: ${mapped}.${fo.skipped ? ` Пропущено строк другого периода: ${fo.skipped}.` : ""} Проверьте и поправьте, если нужно.` }),

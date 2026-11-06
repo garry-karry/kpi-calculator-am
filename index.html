@@ -144,6 +144,9 @@ details.th summary { cursor: pointer; font-weight: 600 }
     <div class="card">
       <h2>AM в расчете</h2>
       <p class="muted small" style="margin:0 0 10px">AM появляются из файлов. Можно добавить вручную и заполнить все в опросе.</p>
+      <label class="inline small" id="teamSelWrap" hidden style="margin-bottom:10px">Команда (лид, колонка Team в документах)
+        <select id="teamSel"></select>
+      </label>
       <div class="row">
         <input type="text" id="newAm" placeholder="Имя AM" aria-label="Имя AM">
         <button class="btn ghost" id="addAm">Добавить AM</button>
@@ -184,6 +187,7 @@ details.th summary { cursor: pointer; font-weight: 600 }
     <div class="tiles" id="leadTiles"></div>
     <div id="leadFlags" class="small" style="margin:8px 0 14px"></div>
     <div class="tablewrap" id="leadsWrap" hidden style="margin-bottom:14px"><table id="leadsTable"></table></div>
+    <div id="teamsBox" hidden><h3 style="margin:6px 0">KPI по лидам из документов (колонка Team)</h3><div class="tablewrap" style="margin-bottom:14px"><table id="teamsTable"></table></div></div>
     <h2>Что сделать с каждым AM</h2>
     <div class="advice" id="advice"></div>
     <p class="muted small">Правила расчета повторяют таблицу KPI-QBR-raschet: допуск по выручке, составной KPI QBR (покрытие, качество, follow-up, результат), исключение малого портфеля, два добранных KPI из Health Score, eNPS и запусков. Окончательное решение по спорным случаям - за лидом.</p>
@@ -248,7 +252,7 @@ const SLOTS = [
 const slotFields = sl => sl.fields ? FIELDS.filter(f => sl.fields.includes(f[0])) : FIELDS;
 const GROUPS = [...new Set(FIELDS.map(f => f[2]))];
 
-const st = { quarter: "", th: Object.fromEntries(TH_DEF.map(t => [t[0], t[2]])), ams: [], files: [], current: 0, example: false, ai: {}, reg: {} };
+const st = { quarter: "", th: Object.fromEntries(TH_DEF.map(t => [t[0], t[2]])), ams: [], files: [], current: 0, example: false, ai: {}, reg: {}, teamSel: "" };
 // reg: project registry of the quarter {key: {name, amStart, amEnd, transfer, isNew, launch, tier, fc, edited, seen}}
 // am: {name, v:{key:value}, src:{key:"file"|"manual"}}
 
@@ -290,7 +294,7 @@ function save() {
   try {
     const all = readAll(); all.current = st.quarter;
     if (!st.example) {
-      if (st.ams.length || st.files.length || Object.keys(st.reg).length) all.quarters[st.quarter] = { ams: st.ams, files: st.files, ai: st.ai, reg: st.reg, savedAt: st.savedAt };
+      if (st.ams.length || st.files.length || Object.keys(st.reg).length) all.quarters[st.quarter] = { ams: st.ams, files: st.files, ai: st.ai, reg: st.reg, teamSel: st.teamSel, savedAt: st.savedAt };
       else delete all.quarters[st.quarter];
     }
     try { localStorage.setItem(KEY, JSON.stringify(all)); storeNoRows = false; }
@@ -305,7 +309,7 @@ function save() {
 }
 function loadQuarter(q) {
   const d = cloud.view ? cloud.view.data[q] : readAll().quarters[q];
-  st.ams = d ? d.ams || [] : []; st.files = d ? (d.files || []).filter(f => !f.light) : []; st.ai = d ? d.ai || {} : {}; st.reg = d ? d.reg || {} : {};
+  st.ams = d ? d.ams || [] : []; st.files = d ? (d.files || []).filter(f => !f.light) : []; st.ai = d ? d.ai || {} : {}; st.reg = d ? d.reg || {} : {}; st.teamSel = d ? d.teamSel || "" : "";
   st.lightFiles = d ? (d.files || []).filter(f => f.light).map(f => f.name) : [];
   st.example = false; st.current = 0;
 }
@@ -332,7 +336,7 @@ function enqueue(fn) {
 function putQuarter(q, d) {
   const ref = cloud.db.doc(`teams/${cloud.uid}/quarters/${qid(q)}`);
   if (!d) { delete cloud.mine[q]; return ref.delete().catch(() => {}).then(putIndex); }
-  const body = JSON.parse(JSON.stringify({ quarter: q, ams: d.ams || [], ai: d.ai || {}, reg: d.reg || {}, files: lite(d.files), savedAt: d.savedAt || Date.now() }));
+  const body = JSON.parse(JSON.stringify({ quarter: q, ams: d.ams || [], ai: d.ai || {}, reg: d.reg || {}, teamSel: d.teamSel || "", files: lite(d.files), savedAt: d.savedAt || Date.now() }));
   cloud.mine[q] = body;
   return ref.set(body).then(putIndex);
 }
@@ -343,7 +347,7 @@ function cloudSave() {
   const q = st.quarter;
   cloud.timer = setTimeout(() => {
     const empty = !st.ams.length && !st.files.length && !Object.keys(st.reg).length;
-    const d = empty ? null : { ams: st.ams, ai: st.ai, reg: st.reg, files: st.files, savedAt: st.savedAt || Date.now() };
+    const d = empty ? null : { ams: st.ams, ai: st.ai, reg: st.reg, teamSel: st.teamSel, files: st.files, savedAt: st.savedAt || Date.now() };
     enqueue(() => putQuarter(q, d));
   }, 1200);
 }
@@ -712,6 +716,7 @@ function applyFiles() {
     const months = wide ? periodMonths(st.quarter) : [];
     fo.wideInfo = wide ? { months: months.length, found: months.filter(m => wide[m]).length, fact: 0 } : null;
     const iLaunch = extraCol(fo.headers, ["launchdate", "датазапуска", "golive", "go-livedate"]);
+    const iTeam = extraCol(fo.headers, ["team", "команда", "лид", "teamlead", "тимлид", "teamleader", "lead"]);
     const iTierP = fo.map.tier >= 0 ? fo.map.tier : extraCol(fo.headers, ["tier", "тир"]);
     for (const row of sh.rows.slice(fo.hr + 1)) {
       const name = String(row[fo.map.am] ?? "").trim();
@@ -732,10 +737,16 @@ function applyFiles() {
       const pr = fo.map.pr >= 0 ? String(row[fo.map.pr] ?? "").trim() : "";
       let ptier = tier;
       if (!ptier && iTierP >= 0) { const t = norm(row[iTierP]).replace("tier", "").replace("тир", "").replace("t", "").trim(); if (["1", "2", "3"].includes(t)) ptier = t; }
-      const r = { am: name, pr, key: norm(pr), vals, yns, tier, ptier, launch: iLaunch >= 0 ? row[iLaunch] : null, dt: fo.map.dt >= 0 ? row[fo.map.dt] : null };
+      const r = { am: name, team: iTeam >= 0 ? String(row[iTeam] ?? "").trim() : "", pr, key: norm(pr), vals, yns, tier, ptier, launch: iLaunch >= 0 ? row[iLaunch] : null, dt: fo.map.dt >= 0 ? row[fo.map.dt] : null };
       rows.push(r); if (pr) prows.push(r);
     }
     perFile.push({ fo, sl, fl, rows });
+    // team (lead) of each AM from the document
+    for (const r of rows) if (r.team) {
+      let am = st.ams.find(x => norm(x.name) === norm(r.am));
+      if (!am) { am = { name: r.am, v: {}, src: {} }; st.ams.push(am); }
+      if (am.teamSrc !== "manual") { am.team = r.team; am.teamSrc = "file"; }
+    }
   }
   syncRegistry(prows);
   // pass 2: aggregate by AM, project rows through the registry
@@ -829,10 +840,22 @@ function renderFiles() {
     box.append(el("div", { class: "card slot" }, [el("h3", { text: sl.label }), el("p", { class: "small muted", style: "margin:0", text: sl.hint }), dz, flist]));
   }
 }
+// AMs of the selected team (a department-wide document lists all teams)
+function teams() { return [...new Set(st.ams.map(a => (a.team || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru")); }
+function vis() { return st.teamSel ? st.ams.filter(a => norm(a.team) === norm(st.teamSel)) : st.ams; }
+function renderTeamSel() {
+  const ts = teams(), wrap = $("#teamSelWrap"), sel = $("#teamSel");
+  if (st.teamSel && !ts.some(t => norm(t) === norm(st.teamSel))) st.teamSel = "";
+  wrap.hidden = !ts.length; if (!ts.length) return;
+  sel.replaceChildren(el("option", { value: "", text: `Все команды (${st.ams.length} AM)` }),
+    ...ts.map(t => el("option", { value: t, selected: norm(t) === norm(st.teamSel), text: `${t} (${st.ams.filter(a => norm(a.team) === norm(t)).length} AM)` })));
+}
 function renderChips() {
+  renderTeamSel();
   const box = $("#amChips"); box.replaceChildren();
-  if (!st.ams.length) { box.append(el("span", { class: "muted small", text: "Пока нет AM: загрузите файл или добавьте вручную." })); return; }
-  st.ams.forEach((am, i) => box.append(el("span", { class: "chip z-n", text: am.name })));
+  const list = vis();
+  if (!list.length) { box.append(el("span", { class: "muted small", text: "Пока нет AM: загрузите файл или добавьте вручную." })); return; }
+  list.forEach(am => box.append(el("span", { class: "chip z-n", text: am.name })));
 }
 function renderTh() {
   const g = $("#thGrid"); g.replaceChildren();
@@ -840,18 +863,20 @@ function renderTh() {
   TH_DEF.forEach(([k, label]) => g.append(el("label", {}, [label, el("b", { class: "num", style: "font-family:var(--f-mono);text-align:right", text: String(st.th[k]).replace(".", ",") })])));
 }
 function renderSurvey() {
+  const V = vis();
   const list = $("#amList"); list.replaceChildren();
-  if (!st.ams.length) { list.append(el("p", { class: "muted", text: "Нет AM. Вернитесь к шагу 1." })); $("#form").replaceChildren(); return; }
-  st.current = Math.min(st.current, st.ams.length - 1);
-  st.ams.forEach((am, i) => {
+  if (!V.length) { list.append(el("p", { class: "muted", text: "Нет AM. Вернитесь к шагу 1." })); $("#form").replaceChildren(); return; }
+  st.current = Math.min(st.current, V.length - 1);
+  V.forEach((am, i) => {
     const r = calc(am);
     list.append(el("button", { "aria-current": i === st.current ? "true" : "false", onclick: () => { st.current = i; renderSurvey(); } },
       [el("span", { text: am.name }), r.missing.length ? el("span", { class: "chip z-r", text: `${r.missing.length}` }) : el("span", { class: "chip z-g", text: "готово" })]));
   });
-  const am = st.ams[st.current], form = $("#form"); form.replaceChildren();
+  const am = V[st.current], form = $("#form"); form.replaceChildren();
   const nameIn = el("input", { type: "text", id: "amName", value: am.name, "aria-label": "Имя AM", onchange: e => { const n = e.target.value.trim(); if (n) { am.name = n; save(); renderSurvey(); renderChips(); } } });
   form.append(el("div", { class: "row" }, [el("h2", { class: "grow", text: "Опрос по AM" }), nameIn,
-    el("button", { class: "btn ghost", text: "Удалить AM", onclick: () => { st.ams.splice(st.current, 1); save(); renderAll(); } })]));
+    el("input", { type: "text", value: am.team || "", placeholder: "Команда (лид)", "aria-label": "Команда (лид)", style: "max-width:180px", onchange: e => { am.team = e.target.value.trim(); am.teamSrc = "manual"; save(); renderAll(); } }),
+    el("button", { class: "btn ghost", text: "Удалить AM", onclick: () => { st.ams.splice(st.ams.indexOf(am), 1); save(); renderAll(); } })]));
   for (const g of GROUPS) {
     const fs = el("fieldset", {}, [el("legend", { text: g })]);
     for (const f of FIELDS.filter(x => x[2] === g)) {
@@ -867,7 +892,7 @@ function renderSurvey() {
   const r = calc(am);
   form.append(el("div", { class: "row" }, [el("span", { class: "small muted", text: "Сейчас:" }), el("span", { class: "small", text: "KPI QBR" }), zoneChip(r.qbr), el("span", { class: "small", text: "Бонус:" }), el("b", { class: "small", text: r.bonus })]));
   $("#prevAm").disabled = st.current === 0;
-  $("#nextAm").textContent = st.current === st.ams.length - 1 ? "К результату" : "Следующий AM";
+  $("#nextAm").textContent = st.current === vis().length - 1 ? "К результату" : "Следующий AM";
 }
 function setVal(am, k, v) { if (v == null || v === "") { delete am.v[k]; delete am.src[k]; } else { am.v[k] = v; am.src[k] = "manual"; } save(); renderSurvey(); }
 
@@ -922,7 +947,7 @@ const LEAD_COLS = [["AM в команде", k => k.n], ["Выручка кома
   ["Health Score портфеля", k => fmt(k.hs)], ["eNPS команды", k => fmt(k.enps)], ["Полный бонус / 50%", k => k.n ? `${k.bonusFull} / ${k.bonusHalf}` : ""],
   ["Статус для модели лида", k => k.status], ["Блокеры и предупреждения", k => k.blockers.concat(k.warnings).join("; ")]];
 function renderLead() {
-  const k = teamKpi(st.ams), box = $("#leadTiles"); box.replaceChildren();
+  const k = teamKpi(vis()), box = $("#leadTiles"); box.replaceChildren();
   LEAD_COLS.slice(0, 9).forEach(([l, f]) => { const v = f(k); box.append(el("div", { class: "tile" }, [/зона/i.test(l) ? zoneChip(v) : el("b", { text: v === "" || v == null ? "-" : v }), el("span", { class: "small muted", text: l })])); });
   const fl = $("#leadFlags"); fl.replaceChildren(el("b", { text: `${k.status}. ` }));
   if (k.blockers.length) fl.append(el("span", { style: "color:var(--red)", text: "Блокеры: " + k.blockers.join("; ") + ". " }));
@@ -942,9 +967,15 @@ async function loadLeads() {
   t.replaceChildren(el("thead", {}, el("tr", {}, ["Лид"].concat(LEAD_COLS.map(c => c[0])).map(h => el("th", { text: h })))),
     el("tbody", {}, rows.map(([n, k]) => el("tr", {}, [el("td", { text: n })].concat(k ? LEAD_COLS.map(c => { const v = c[1](k); return /Зона/.test(c[0]) ? el("td", {}, zoneChip(v)) : el("td", { text: v }); }) : [el("td", { colspan: LEAD_COLS.length, class: "muted", text: `Нет данных за ${st.quarter}` })])))));
 }
+function renderTeamKpis() {
+  const ts = teams(), box = $("#teamsBox"); box.hidden = ts.length < 1; if (!ts.length) return;
+  const t = $("#teamsTable");
+  t.replaceChildren(el("thead", {}, el("tr", {}, ["Лид"].concat(LEAD_COLS.map(c => c[0])).map(h => el("th", { text: h })))),
+    el("tbody", {}, ts.map(n => { const k = teamKpi(st.ams.filter(a => norm(a.team) === norm(n))); return el("tr", {}, [el("td", { text: n })].concat(LEAD_COLS.map(c => { const v = c[1](k); return /Зона/.test(c[0]) ? el("td", {}, zoneChip(v)) : el("td", { text: v }); }))); })));
+}
 function renderResult() {
-  renderLead();
-  const rs = st.ams.map(am => ({ am, r: calc(am) }));
+  renderLead(); renderTeamKpis();
+  const rs = vis().map(am => ({ am, r: calc(am) }));
   const cnt = b => rs.filter(x => x.r.bonus === b).length;
   const tiles = $("#tiles"); tiles.replaceChildren();
   [["AM в расчете", rs.length], ["Полный бонус", cnt("Полный бонус")], ["50% бонуса", cnt("50% бонуса")],
@@ -1011,6 +1042,7 @@ function buildFromMonths() {
   const agg = {};
   for (const [, d] of ms) for (const a of d.ams) {
     const g = agg[norm(a.name)] || (agg[norm(a.name)] = { name: a.name, v: {} });
+    if (a.team) g.team = a.team;
     for (const f of FIELDS) {
       const k = f[0], x = a.v[k]; if (x == null || x === "") continue;
       const c = g.v[k] || (g.v[k] = { sum: 0, n: 0, w: 0, ws: 0, last: null });
@@ -1022,6 +1054,7 @@ function buildFromMonths() {
   for (const g of Object.values(agg)) {
     let am = st.ams.find(x => norm(x.name) === norm(g.name));
     if (!am) { am = { name: g.name, v: {}, src: {} }; st.ams.push(am); }
+    if (g.team && am.teamSrc !== "manual") { am.team = g.team; am.teamSrc = "months"; }
     for (const [k, c] of Object.entries(g.v)) {
       if (am.src[k] === "manual") continue;
       const f = FMAP[k];
@@ -1052,20 +1085,21 @@ async function saveFile(filename, data) {
 }
 async function exportXlsx() {
   if (!dl && window.claude) { toast("Скачивание недоступно в этом окне. Откройте страницу в claude.ai."); return; }
-  const rs = st.ams.map(am => ({ am, r: calc(am) }));
+  const rs = vis().map(am => ({ am, r: calc(am) }));
   const wb = XLSX.utils.book_new();
   const head = ["Период"].concat(COLS.map(c => c[0]));
   const rows = rs.map(({ r }) => [st.quarter].concat(COLS.map(c => c[1](r))));
   const ws1 = XLSX.utils.aoa_to_sheet([head].concat(rows)); ws1["!cols"] = head.map((h, i) => ({ wch: i === 1 ? 26 : 16 }));
   XLSX.utils.book_append_sheet(wb, ws1, "Расчет");
   const inHead = ["AM"].concat(FIELDS.map(f => f[1]));
-  const ws2 = XLSX.utils.aoa_to_sheet([inHead].concat(st.ams.map(am => [am.name].concat(FIELDS.map(f => am.v[f[0]] ?? ""))))); ws2["!cols"] = inHead.map(() => ({ wch: 18 }));
+  const ws2 = XLSX.utils.aoa_to_sheet([inHead].concat(vis().map(am => [am.name].concat(FIELDS.map(f => am.v[f[0]] ?? ""))))); ws2["!cols"] = inHead.map(() => ({ wch: 18 }));
   XLSX.utils.book_append_sheet(wb, ws2, "Исходные данные");
   const advRows = [["AM", "Итог по бонусу", "Что сделать"]];
   rs.forEach(({ am, r }) => advice(am, r).forEach((s, j) => advRows.push([j ? "" : am.name, j ? "" : r.bonus, s])));
   const ws3 = XLSX.utils.aoa_to_sheet(advRows); ws3["!cols"] = [{ wch: 26 }, { wch: 28 }, { wch: 120 }];
   XLSX.utils.book_append_sheet(wb, ws3, "Советы");
-  const lk = teamKpi(st.ams), lrows = [["Показатель", "Значение"]].concat(LEAD_COLS.map(c => [c[0], c[1](lk)]));
+  const lk = teamKpi(vis()), lrows = [["Показатель", "Значение"]].concat(LEAD_COLS.map(c => [c[0], c[1](lk)]));
+  if (teams().length) { lrows.push([], ["KPI по лидам из документов"], ["Лид"].concat(LEAD_COLS.map(c => c[0]))); teams().forEach(n => { const k = teamKpi(st.ams.filter(a => norm(a.team) === norm(n))); lrows.push([n].concat(LEAD_COLS.map(c => c[1](k)))); }); }
   if (st.leadRows && st.leadRows.length) { lrows.push([], ["Сводка по лидам"], ["Лид"].concat(LEAD_COLS.map(c => c[0]))); st.leadRows.forEach(r => lrows.push(r)); }
   const ws5 = XLSX.utils.aoa_to_sheet(lrows); ws5["!cols"] = [{ wch: 34 }, { wch: 40 }];
   XLSX.utils.book_append_sheet(wb, ws5, "KPI лида");
@@ -1116,7 +1150,7 @@ function go(step) {
 document.querySelectorAll(".steps button").forEach(b => b.addEventListener("click", () => go(b.dataset.step)));
 document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => go(b.dataset.go)));
 $("#prevAm").addEventListener("click", () => { if (st.current > 0) { st.current--; renderSurvey(); } });
-$("#nextAm").addEventListener("click", () => { if (st.current < st.ams.length - 1) { st.current++; renderSurvey(); window.scrollTo({ top: 0 }); } else go("result"); });
+$("#nextAm").addEventListener("click", () => { if (st.current < vis().length - 1) { st.current++; renderSurvey(); window.scrollTo({ top: 0 }); } else go("result"); });
 function clearExample() { if (st.example) { st.ams = []; st.files = []; st.example = false; st.ai = {}; st.reg = {}; } }
 async function handleFiles(list, slotId) {
   if (!list.length) return;
@@ -1151,6 +1185,7 @@ qs.value = st.quarter;
 if (st.lightFiles && st.lightFiles.length) setTimeout(() => toast(`Без строк сохранены документы: ${st.lightFiles.join(", ")}. Значения AM на месте; чтобы пересопоставить колонки, загрузите их заново.`), 400);
 renderTh(); renderAll();
 $("#fromMonths").addEventListener("click", buildFromMonths);
+$("#teamSel").addEventListener("change", e => { st.teamSel = e.target.value; st.current = 0; save(); renderAll(); });
 $("#leadsBtn").addEventListener("click", loadLeads);
 $("#team").addEventListener("change", e => viewTeam(e.target.value));
 cloudInit();

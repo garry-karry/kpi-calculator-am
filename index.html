@@ -190,7 +190,7 @@ details.th summary { cursor: pointer; font-weight: 600 }
     <div id="teamsBox" hidden><h3 style="margin:6px 0">KPI по лидам из документов (колонка Team)</h3><div class="tablewrap" style="margin-bottom:14px"><table id="teamsTable"></table></div></div>
     <h2>Что сделать с каждым AM</h2>
     <div class="advice" id="advice"></div>
-    <p class="muted small">Правила расчета повторяют таблицу KPI-QBR-raschet: допуск по выручке, составной KPI QBR (покрытие, качество, follow-up, результат), исключение малого портфеля, два добранных KPI из Health Score, eNPS и запусков. Окончательное решение по спорным случаям - за лидом.</p>
+    <p class="muted small">Правила расчета повторяют таблицу KPI-QBR-raschet: допуск по выручке, составной KPI QBR (покрытие, качество, follow-up, результат), исключение малого портфеля, два добранных KPI из Health Score, eNPS и KPI по запускам. Выручка и запуски считаются в своих документах: сюда загружается выручка (или готовый % выполнения) и общая зона KPI по запускам. Окончательное решение по спорным случаям - за лидом.</p>
   </section>
 </main>
 <div class="toast" id="toast" hidden></div>
@@ -205,10 +205,6 @@ const TH_DEF = [
   ["qG", "Качество QBR: зеленая от (баллов из 12)", 11], ["qY", "Качество QBR: желтая от", 9],
   ["resG", "Результат: зеленая зона от", 0.8], ["resY", "Результат: желтая зона от", 0.6],
   ["fuG", "Follow-up: зеленая, нарушений не больше", 1], ["fuY", "Follow-up: желтая, нарушений не больше", 2],
-  ["lG", "Запуск в срок: зеленая от", 0.8], ["lY", "Запуск в срок: желтая от", 0.6],
-  ["lrG", "Риски и эскалации: зеленая от (средний балл из 6)", 5], ["lrY", "Риски и эскалации: желтая от", 4],
-  ["laG", "Точность прогноза: зеленая от", 0.8], ["laY", "Точность прогноза: желтая от", 0.6],
-  ["lcG", "Готовность и пост-запуск: зеленая от", 0.9], ["lcY", "Готовность и пост-запуск: желтая от", 0.7],
   ["enps", "eNPS: зеленая зона от", 7], ["hs", "Health Score: зеленая от (балл из 5)", 4],
   ["lim", "Лимит зачета 50% (доля аккаунтов Tier 1 и 2)", 0.1], ["limMin", "Минимум аккаунтов под зачет 50%", 1],
   ["small", "Малый портфель: плановых QBR меньше", 3]
@@ -217,6 +213,7 @@ const FIELDS = [
   // key, label, group, kind, required, aggregate, keywords
   ["rev_fact", "Выручка факт за период", "Выручка", "num", true, "sum", ["выручка факт", "факт выручки", "revenue", "rake", "ggr", "факт"]],
   ["rev_fc", "Выручка ожидаемая по Forecast за период", "Выручка", "num", true, "sum", ["forecast", "ожидаем", "прогноз", "план выручки"]],
+  ["rev_pct", "Или готовый результат: % выполнения Forecast (из документа расчета выручки KPI6)", "Выручка", "num", false, "avg", ["результат kpi по выручке", "% выполнения", "выполнение forecast", "kpi6"]],
   ["t1", "Проектов Tier 1", "Портфель", "int", false, "sum", ["tier 1", "tier1", "тир 1"]],
   ["t2", "Проектов Tier 2", "Портфель", "int", false, "sum", ["tier 2", "tier2", "тир 2"]],
   ["t3", "Проектов Tier 3", "Портфель", "int", false, "sum", ["tier 3", "tier3", "тир 3"]],
@@ -233,12 +230,7 @@ const FIELDS = [
   ["feat_done", "Из них доведено до анализа в срок", "Результат", "int", false, "sum", ["доведено", "до анализа"]],
   ["hs", "Health Score, балл 1-5", "Health Score", "num", false, "avg", ["health score", "health", "hs"]],
   ["enps", "eNPS", "eNPS", "num", false, "avg", ["enps", "nps"]],
-  ["has_launch", "Есть незапущенные проекты в пределах срока на начало квартала", "Запуски", "yn", false, "last", ["незапущенные", "есть запуски"]],
-  ["l_n", "Проектов в расчете KPI запусков", "Запуски", "int", false, "sum", ["проектов в расчете", "проектов в расчёте"]],
-  ["l_time", "1. Запуск в срок, % проектов", "Запуски", "num", false, "avg", ["запуск в срок"]],
-  ["l_risk", "2. Риски и эскалации, средний балл из 6", "Запуски", "num", false, "avg", ["риски, средний", "риски и эскалации", "риски"]],
-  ["l_acc", "3. Точность прогноза, % в пределах 14 дней", "Запуски", "num", false, "avg", ["точность прогноза", "точность"]],
-  ["l_ready", "4. Готовность и пост-запуск, % пунктов", "Запуски", "num", false, "avg", ["готовность и пост-запуск", "готовность"]]
+  ["l_zone", "Результат KPI по запускам: общая зона из таблицы KPI-zapuski-raschet (нет проектов - «Не применяется»)", "KPI по запускам", "zone", false, "last", ["общая зона", "зона kpi по запускам", "результат kpi по запускам", "зона запусков"]]
 ];
 const FMAP = Object.fromEntries(FIELDS.map(f => [f[0], f]));
 const SLOTS = [
@@ -247,7 +239,6 @@ const SLOTS = [
   { id: "enps", label: "eNPS", hint: "eNPS по проектам или по AM. Подойдет таблица с колонкой на месяц, например «eNPS Sep-26»", fields: ["enps"], wide: { field: "enps", prefixes: ["enps", "nps", "kpi"] } },
   { id: "qbr", label: "QBR: план, факт, follow-up, результат", hint: "Плановые и проведенные QBR, зачет 50%, тиры, нарушения follow-up, договоренности и фичи. Подойдет и сводка из целевого плана QBR", fields: ["t1", "t2", "t3", "plan", "held", "half", "ladder", "fu_viol", "agr_total", "agr_closed", "feat_total", "feat_done"], tier: true },
   { id: "q", label: "Качество QBR", hint: "Баллы по чек-листу: строка на QBR (балл 0-12) или средний балл по AM", fields: ["q_avg", "q_n"], countRows: "q_n" },
-  { id: "launch", label: "Запуски", hint: "Лист «Сводка» из таблицы KPI-zapuski-raschet: четыре показателя по AM (берутся строки выбранного квартала)", fields: ["has_launch", "l_n", "l_time", "l_risk", "l_acc", "l_ready"] },
   { id: "all", label: "Все сразу (лист «Ввод» из KPI-QBR-raschet)", hint: "Таблица со всеми колонками по AM за квартал", fields: null, tier: true }
 ];
 const slotFields = sl => sl.fields ? FIELDS.filter(f => sl.fields.includes(f[0])) : FIELDS;
@@ -403,9 +394,9 @@ async function viewTeam(id) {
 function exampleAms() {
   const mk = (name, v) => ({ name, v, src: Object.fromEntries(Object.keys(v).map(k => [k, "manual"])) });
   return [
-    mk("Пример: Анна Петрова", { rev_fact: 1180, rev_fc: 1150, t1: 2, t2: 2, t3: 1, plan: 5, held: 5, half: 0, q_avg: 11.4, q_n: 5, fu_viol: 0, agr_total: 10, agr_closed: 9, feat_total: 3, feat_done: 3, hs: 4.3, enps: 7.5, has_launch: "Да", l_n: 3, l_time: 1, l_risk: 5.3, l_acc: 0.9, l_ready: 0.94 }),
-    mk("Пример: Иван Сидоров", { rev_fact: 960, rev_fc: 1000, t1: 1, t2: 3, t3: 2, plan: 4, held: 3, half: 1, ladder: "Да", q_avg: 9.6, q_n: 4, fu_viol: 2, agr_total: 8, agr_closed: 5, feat_total: 2, feat_done: 1, hs: 3.6, enps: 8, has_launch: "Нет" }),
-    mk("Пример: Ольга Ким", { rev_fact: 610, rev_fc: 700, t1: 0, t2: 2, t3: 3, plan: 2, held: 1, half: 0, q_avg: 10, q_n: 1, fu_viol: 1, agr_total: 4, agr_closed: 4, hs: 4.1, enps: 6, has_launch: "Да", l_n: 1, l_time: 0, l_risk: 3, l_acc: 0, l_ready: 0.5 })
+    mk("Пример: Анна Петрова", { rev_fact: 1180, rev_fc: 1150, t1: 2, t2: 2, t3: 1, plan: 5, held: 5, half: 0, q_avg: 11.4, q_n: 5, fu_viol: 0, agr_total: 10, agr_closed: 9, feat_total: 3, feat_done: 3, hs: 4.3, enps: 7.5, l_zone: "Зеленая" }),
+    mk("Пример: Иван Сидоров", { rev_fact: 960, rev_fc: 1000, t1: 1, t2: 3, t3: 2, plan: 4, held: 3, half: 1, ladder: "Да", q_avg: 9.6, q_n: 4, fu_viol: 2, agr_total: 8, agr_closed: 5, feat_total: 2, feat_done: 1, hs: 3.6, enps: 8, l_zone: "Не применяется" }),
+    mk("Пример: Ольга Ким", { rev_fact: 610, rev_fc: 700, t1: 0, t2: 2, t3: 3, plan: 2, held: 1, half: 0, q_avg: 10, q_n: 1, fu_viol: 1, agr_total: 4, agr_closed: 4, hs: 4.1, enps: 6, l_zone: "Красная" })
   ];
 }
 
@@ -418,7 +409,7 @@ function zone(v, g, y, lowerIsBetter) {
 function calc(am) {
   const v = am.v, T = st.th, N = k => num(v[k]) ?? 0, has = k => num(v[k]) != null;
   const r = { name: am.name };
-  r.revPct = has("rev_fc") && N("rev_fc") > 0 && has("rev_fact") ? N("rev_fact") / N("rev_fc") : null;
+  r.revPct = has("rev_fc") && N("rev_fc") > 0 && has("rev_fact") ? N("rev_fact") / N("rev_fc") : has("rev_pct") ? (N("rev_pct") > 3 ? N("rev_pct") / 100 : N("rev_pct")) : null;
   r.revOk = r.revPct == null ? "" : r.revPct >= T.rev ? "Да" : "Нет";
   r.accounts = (has("t1") || has("t2")) ? N("t1") + N("t2") : null;
   r.cov = has("plan") && N("plan") > 0 ? (N("held") + 0.5 * N("half")) / N("plan") : null;
@@ -442,14 +433,9 @@ function calc(am) {
   else r.qbr = r.greens === 3 ? "Зеленая" : r.greens === 2 ? "Желтая" : "Красная";
   r.hsZone = has("hs") && N("hs") >= T.hs ? "Зеленая" : "Не зеленая";
   r.enpsZone = has("enps") && N("enps") >= T.enps ? "Зеленая" : "Не зеленая";
-  // composite launch KPI (Регламент KPI по запускам): 4 indicators, overall zone by the agreed rule
-  const P = k => { const x = num(v[k]); return x == null ? null : x > 1.0001 ? x / 100 : x; };
-  const hasL = num(v.l_n) === 0 ? false : v.has_launch === "Да" || (v.has_launch == null && num(v.l_n) > 0);
-  r.lTime = P("l_time"); r.lRisk = num(v.l_risk); r.lAcc = P("l_acc"); r.lReady = P("l_ready"); r.launch = r.lTime;
-  r.lzT = zone(r.lTime, T.lG, T.lY); r.lzR = zone(r.lRisk, T.lrG, T.lrY); r.lzA = zone(r.lAcc, T.laG, T.laY); r.lzC = zone(r.lReady, T.lcG, T.lcY);
-  r.lGreens = [r.lzR, r.lzA, r.lzC].filter(z => z === "Зеленая").length;
-  r.lZone = !hasL ? "Не применяется" : r.lTime == null ? "" : (r.lzT === "Зеленая" && r.lGreens === 3) ? "Зеленая"
-    : ((r.lzT === "Зеленая" || r.lzT === "Желтая") && r.lGreens >= 2) ? "Желтая" : "Красная";
+  // launch KPI is calculated in KPI-zapuski-raschet: only its overall zone comes here
+  const lz = norm(v.l_zone).replace(/ё/g, "е");
+  r.lZone = !lz ? "" : lz.startsWith("зел") ? "Зеленая" : lz.startsWith("жел") ? "Желтая" : lz.startsWith("крас") ? "Красная" : lz.startsWith("не ") ? "Не применяется" : "";
   r.extra = [r.hsZone, r.enpsZone, r.lZone].filter(z => z === "Зеленая").length;
   if (r.revOk === "" || r.qbr === "Нет данных") r.bonus = "Нет данных";
   else if (r.revOk === "Нет") r.bonus = "Бонуса нет: выручка ниже допуска";
@@ -458,7 +444,7 @@ function calc(am) {
   else r.bonus = "Решение лида: добранных KPI меньше двух";
   r.planRef = (has("t1") || has("t2")) ? 1.5 * N("t1") + N("t2") : null;
   r.planCheck = r.planRef == null || !has("plan") ? "" : Math.abs(N("plan") - r.planRef) <= 0.5 * N("t1") ? "ОК" : "Сверить с календарем QBR";
-  r.missing = FIELDS.filter(f => f[4] && !has(f[0])).map(f => f[1]);
+  r.missing = FIELDS.filter(f => f[4] && !has(f[0]) && !(has("rev_pct") && (f[0] === "rev_fact" || f[0] === "rev_fc"))).map(f => f[1]);
   return r;
 }
 function bonusClass(b) { return b === "Полный бонус" ? "b-full" : b === "50% бонуса" ? "b-half" : b.startsWith("Бонуса нет") ? "b-none" : "b-na"; }
@@ -486,15 +472,8 @@ function advice(am, r) {
   }
   if (r.hsZone !== "Зеленая") out.push(num(v.hs) == null ? "Health Score не указан - добранный KPI не засчитывается." : `Health Score ${fmt(num(v.hs))} (зеленая от ${T.hs}). По проектам с низким баллом: CSAT, Show-stopper баги Support, задачи Release/Launch - план закрытия с поддержкой и разработкой.`);
   if (r.enpsZone !== "Зеленая") out.push(num(v.enps) == null ? "eNPS не указан - добранный KPI не засчитывается." : `eNPS ${fmt(num(v.enps))} (цель от ${T.enps}). Собрать обратную связь клиентов с низкой оценкой и вынести действия на ближайший QBR.`);
-  if (r.lZone === "Красная" || r.lZone === "Желтая") {
-    const weak = [];
-    if (r.lzT !== "Зеленая") weak.push(`запуск в срок ${pct(r.lTime)}`);
-    if (r.lzR !== "Зеленая") weak.push(`риски и эскалации ${r.lRisk == null ? "нет оценки" : fmt(r.lRisk) + " из 6"}`);
-    if (r.lzA !== "Зеленая") weak.push(`точность прогноза ${r.lAcc == null ? "нет данных" : pct(r.lAcc)}`);
-    if (r.lzC !== "Зеленая") weak.push(`готовность и пост-запуск ${r.lReady == null ? "нет данных" : pct(r.lReady)}`);
-    out.push(`KPI по запускам в ${r.lZone === "Красная" ? "красной" : "желтой"} зоне: ${weak.join(", ")}. Риски и блокеры - в плане запуска с owner, риск срыва поднимать за 2 недели, эскалацию - за 2 рабочих дня; первую Expected launch date согласовывать с заказчиком реалистично; до запуска - лобби-ревью, план воронки и метрики 30/60/90, после - анализ 30 и 60 дней и итоги на QBR. Каждый срыв разобрать по «Чек-листу лида».`);
-  }
-  if (r.lZone === "" && (v.has_launch === "Да")) out.push("Есть проекты на запуск, но нет показателей KPI по запускам. Загрузите лист «Сводка» таблицы KPI-zapuski-raschet или заполните четыре показателя в опросе.");
+  if (r.lZone === "Красная" || r.lZone === "Желтая") out.push(`KPI по запускам в ${r.lZone === "Красная" ? "красной" : "желтой"} зоне (по таблице KPI-zapuski-raschet): разберите проекты AM в ней по «Чек-листу лида» - что мешает запуску в срок и что поднять в плане следующего квартала.`);
+  if (r.lZone === "") out.push("Нет результата KPI по запускам. Внесите общую зону из листа «Сводка» таблицы KPI-zapuski-raschet или «Не применяется», если проектов на запуск нет.");
   if (r.bonus.startsWith("Решение лида")) out.push(`В зеленой зоне ${r.extra} из 3 добранных KPI (Health Score, eNPS, запуски) при выполненных выручке и QBR. Нужно решение лида по бонусу.`);
   if (r.planCheck === "Сверить с календарем QBR") out.push(`Плановых QBR ${N("plan")}, а по тирам ожидается около ${fmt(r.planRef)}. Сверить с календарем QBR и целевым планом.`);
   for (const e of Object.values(st.reg)) {
@@ -511,7 +490,9 @@ function advice(am, r) {
 // ---------- import ----------
 function guessCol(headers, f) {
   const hs = headers.map(norm);
-  for (const kw of f[6]) { const i = hs.findIndex(h => h && h.includes(kw)); if (i >= 0) return i; }
+  // a column with a ready revenue result (% of Forecast) is not the fact or the Forecast itself
+  const skip = h => (f[0] === "rev_fact" || f[0] === "rev_fc") && (h.includes("%") || h.startsWith("результат") || h.includes("nps") || h.includes("health"));
+  for (const kw of f[6]) { const i = hs.findIndex(h => h && h.includes(kw) && !skip(h)); if (i >= 0) return i; }
   return -1;
 }
 function headerRow(rows) {
@@ -749,6 +730,7 @@ function applyFiles() {
       for (const f of fl) {
         const i = fo.map[f[0]]; if (i == null || i < 0) continue;
         if (f[3] === "yn") { const y = yn(row[i]); if (y) yns[f[0]] = y; continue; }
+        if (f[3] === "zone") { const t = String(row[i] ?? "").trim(); if (t) yns[f[0]] = t; continue; }
         const n = num(row[i]); if (n != null) vals[f[0]] = n;
       }
       if (ws) {
@@ -914,6 +896,7 @@ function renderSurvey() {
       const missing = req && num(val) == null;
       let input;
       if (kind === "yn") input = el("select", { id: `f-${k}`, onchange: e => setVal(am, k, e.target.value || null) }, [el("option", { value: "", text: "-" }), el("option", { value: "Да", text: "Да", selected: val === "Да" }), el("option", { value: "Нет", text: "Нет", selected: val === "Нет" })]);
+      else if (kind === "zone") input = el("select", { id: `f-${k}`, onchange: e => setVal(am, k, e.target.value || null) }, [["", "-"], ["Зеленая", "Зеленая"], ["Желтая", "Желтая"], ["Красная", "Красная"], ["Не применяется", "Не применяется"]].map(([v2, t]) => el("option", { value: v2, text: t, selected: norm(val || "").replace(/ё/g, "е") === norm(v2) && v2 !== "" })));
       else input = el("input", { type: "number", step: kind === "int" ? "1" : "any", min: "0", id: `f-${k}`, value: val ?? "", onchange: e => setVal(am, k, num(e.target.value)) });
       fs.append(el("label", { class: "field" + (missing ? " missing" : ""), for: `f-${k}` }, [el("span", {}, [label + (req ? " *" : ""), am.src[k] === "file" ? el("span", { class: "src", text: "  из файла" }) : am.src[k] === "months" ? el("span", { class: "src", text: "  из месяцев" }) : null]), input]));
     }
@@ -933,8 +916,7 @@ const COLS = [
   ["Нарушений follow-up", r => r.fu ?? "", "num"], ["Зона follow-up", r => r.fuZone, "z"],
   ["Результат", r => pct(r.res), "num"], ["Зона результата", r => r.resZone, "z"],
   ["KPI QBR", r => r.qbr, "z"], ["Health Score", r => r.hsZone, "z"], ["eNPS", r => r.enpsZone, "z"],
-  ["Запуск в срок", r => pct(r.lTime), "num"], ["Риски (из 6)", r => r.lRisk == null ? "" : fmt(r.lRisk), "num"], ["Точность прогноза", r => pct(r.lAcc), "num"],
-  ["Готовность и пост-запуск", r => pct(r.lReady), "num"], ["Зона запусков", r => r.lZone, "z"],
+  ["KPI по запускам", r => r.lZone, "z"],
   ["Добранных KPI", r => r.extra, "num"], ["Итог по бонусу", r => r.bonus], ["Лимит 50%", r => r.limOver ? "Превышен" : "ОК"],
   ["Малый портфель", r => r.small ? "Применяется" : "-"], ["Сверка плана с тирами", r => r.planCheck]
 ];
@@ -953,15 +935,11 @@ function teamKpi(ams) {
   const avg = key => { const v = rs.map(x => num(x.am.v[key])).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
   k.hs = avg("hs"); k.enps = avg("enps");
   // team launch KPI: the four indicators weighted by projects, then the agreed overall-zone rule
-  const L = rs.filter(x => x.r.lZone && x.r.lZone !== "Не применяется" && x.r.lTime != null);
-  if (!L.length) k.lZone = rs.some(x => x.r.lZone === "") ? "Нет данных" : "Не применяется";
-  else {
-    const w = x => num(x.am.v.l_n) || 1, W = L.reduce((a, x) => a + w(x), 0);
-    const wa = f => { const v = L.filter(x => x.r[f] != null); const ww = v.reduce((a, x) => a + w(x), 0); return ww ? v.reduce((a, x) => a + x.r[f] * w(x), 0) / ww : null; };
-    const T = st.th, t = wa("lTime"), zr = zone(wa("lRisk"), T.lrG, T.lrY), za = zone(wa("lAcc"), T.laG, T.laY), zc = zone(wa("lReady"), T.lcG, T.lcY), zt = zone(t, T.lG, T.lY);
-    const g = [zr, za, zc].filter(z => z === "Зеленая").length;
-    k.lZone = zt === "Зеленая" && g === 3 ? "Зеленая" : (zt !== "Красная" && g >= 2) ? "Желтая" : "Красная"; k.lW = W;
-  }
+  // team launch result from the AM zones (calculated in KPI-zapuski-raschet): the worst zone among AMs with launches
+  const L = rs.filter(x => ["Зеленая", "Желтая", "Красная"].includes(x.r.lZone));
+  k.lZone = !L.length ? (rs.some(x => x.r.lZone === "") ? "Нет данных" : "Не применяется")
+    : L.some(x => x.r.lZone === "Красная") ? "Красная" : L.some(x => x.r.lZone === "Желтая") ? "Желтая" : "Зеленая";
+  k.lGreen = `${L.filter(x => x.r.lZone === "Зеленая").length} из ${L.length}`;
   k.bonusFull = rs.filter(x => x.r.bonus === "Полный бонус").length; k.bonusHalf = rs.filter(x => x.r.bonus === "50% бонуса").length;
   k.blockers = []; k.warnings = [];
   if (k.revShare != null && k.revShare < LEAD.revMin) k.blockers.push(`доля AM с выручкой от 95% Forecast ${pct(k.revShare)} - ниже ${pct(LEAD.revMin)}`);
@@ -973,7 +951,7 @@ function teamKpi(ams) {
   return k;
 }
 const LEAD_COLS = [["AM в команде", k => k.n], ["Выручка команды от Forecast", k => pct(k.revPct)], ["Доля AM с выручкой от 95%", k => pct(k.revShare)],
-  ["AM в красной зоне QBR", k => k.n ? k.red : ""], ["Доля AM в зеленой зоне QBR", k => pct(k.greenShare)], ["Зона запусков команды", k => k.lZone],
+  ["AM в красной зоне QBR", k => k.n ? k.red : ""], ["Доля AM в зеленой зоне QBR", k => pct(k.greenShare)], ["Зона запусков команды (худшая у AM)", k => k.lZone],
   ["Health Score портфеля", k => fmt(k.hs)], ["eNPS команды", k => fmt(k.enps)], ["Полный бонус / 50%", k => k.n ? `${k.bonusFull} / ${k.bonusHalf}` : ""],
   ["Статус для модели лида", k => k.status], ["Блокеры и предупреждения", k => k.blockers.concat(k.warnings).join("; ")]];
 function renderLead() {
@@ -1063,7 +1041,7 @@ function renderProjects() {
   $("#projTable").replaceWith(Object.assign(all, { id: "projTable" }));
 }
 // ---------- quarter from its months ----------
-const SNAP = new Set(["t1", "t2", "t3", "ladder", "has_launch", "l_n", "l_time", "l_risk", "l_acc", "l_ready"]);  // snapshot / quarterly values: last month wins
+const SNAP = new Set(["t1", "t2", "t3", "ladder", "l_zone"]);  // snapshot / quarterly values: last month wins
 function periodData(p) { return cloud.view ? cloud.view.data[p] : readAll().quarters[p]; }
 function buildFromMonths() {
   const ms = monthsOf(st.quarter).map(m => [m, periodData(m)]).filter(x => x[1] && (x[1].ams || []).length);
@@ -1088,7 +1066,7 @@ function buildFromMonths() {
     for (const [k, c] of Object.entries(g.v)) {
       if (am.src[k] === "manual") continue;
       const f = FMAP[k];
-      am.v[k] = SNAP.has(k) || f[3] === "yn" ? c.last : k === "q_avg" ? Math.round(c.ws / c.w * 100) / 100 : f[5] === "avg" ? Math.round(c.sum / c.n * 100) / 100 : Math.round(c.sum * 100) / 100;
+      am.v[k] = SNAP.has(k) || f[3] === "yn" || f[3] === "zone" ? c.last : k === "q_avg" ? Math.round(c.ws / c.w * 100) / 100 : f[5] === "avg" ? Math.round(c.sum / c.n * 100) / 100 : Math.round(c.sum * 100) / 100;
       am.src[k] = "months";
     }
   }
@@ -1157,7 +1135,7 @@ async function askClaude(am, r, items, box, btn) {
   btn.disabled = true; box.hidden = false; box.textContent = "Claude думает...";
   const data = FIELDS.map(f => `${f[1]}: ${am.v[f[0]] ?? "нет данных"}`).join("\n");
   const prompt = `Ты помогаешь тимлиду отдела Account Management (iGaming, покер и казино-платформа) подготовиться к 1:1 с AM по итогам ${isMonth(st.quarter) ? "месяца" : "квартала"} ${st.quarter}${isMonth(st.quarter) ? " (промежуточный контроль: бонус считается по кварталу)" : ""}.
-KPI считается так: выручка не ниже ${pct(st.th.rev)} Forecast - допуск к бонусу; KPI QBR составной (покрытие QBR с ЛПР, качество по чек-листу из 12 баллов, follow-up до конца следующего рабочего дня, результат - закрытые договоренности и фичи, доведенные до анализа); добранные KPI - Health Score от ${st.th.hs}, eNPS от ${st.th.enps}, запуски в срок 150 дней.
+KPI считается так: выручка не ниже ${pct(st.th.rev)} Forecast - допуск к бонусу; KPI QBR составной (покрытие QBR с ЛПР, качество по чек-листу из 12 баллов, follow-up до конца следующего рабочего дня, результат - закрытые договоренности и фичи, доведенные до анализа); добранные KPI - Health Score от ${st.th.hs}, eNPS от ${st.th.enps}, KPI по запускам - общая зона из отдельной таблицы KPI-zapuski-raschet (зеленая засчитывается).
 Данные AM:\n${data}
 Итог расчета: KPI QBR - ${r.qbr}; бонус - ${r.bonus}.
 Уже сформулированные выводы:\n- ${items.join("\n- ")}

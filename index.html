@@ -211,8 +211,8 @@ const TH_DEF = [
 ];
 const FIELDS = [
   // key, label, group, kind, required, aggregate, keywords
-  ["rev_fact", "Выручка факт за квартал (тыс.)", "Выручка", "num", true, "sum", ["выручка факт", "факт выручки", "revenue", "rake", "ggr", "факт"]],
-  ["rev_fc", "Выручка ожидаемая по Forecast (тыс.)", "Выручка", "num", true, "sum", ["forecast", "ожидаем", "прогноз", "план выручки"]],
+  ["rev_fact", "Выручка факт за период", "Выручка", "num", true, "sum", ["выручка факт", "факт выручки", "revenue", "rake", "ggr", "факт"]],
+  ["rev_fc", "Выручка ожидаемая по Forecast за период", "Выручка", "num", true, "sum", ["forecast", "ожидаем", "прогноз", "план выручки"]],
   ["t1", "Проектов Tier 1", "Портфель", "int", false, "sum", ["tier 1", "tier1", "тир 1"]],
   ["t2", "Проектов Tier 2", "Портфель", "int", false, "sum", ["tier 2", "tier2", "тир 2"]],
   ["t3", "Проектов Tier 3", "Портфель", "int", false, "sum", ["tier 3", "tier3", "тир 3"]],
@@ -260,7 +260,16 @@ const isMonth = p => !!monthOf(p);
 function quarterOf(p) { const m = monthOf(p); return m ? `Q${Math.floor(m.i / 3) + 1} ${m.y}` : p; }
 function monthsOf(q) { const m = String(q).match(/Q(\d)\s+(\d{4})/); if (!m) return []; return [0, 1, 2].map(k => `${MONTHS[(+m[1] - 1) * 3 + k]} ${m[2]}`); }
 const norm = s => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-const num = v => { if (v === "" || v == null) return null; if (typeof v === "number") return isFinite(v) ? v : null; const s = String(v).replace(/\s/g, "").replace(",", ".").replace("%", ""); const n = parseFloat(s); return isFinite(n) ? n : null; };
+const num = v => {
+  if (v === "" || v == null) return null; if (typeof v === "number") return isFinite(v) ? v : null;
+  let s = String(v).replace(/[\s $€£%]/g, "").replace(/^USD|USD$/i, "");
+  if (/^-?\(?[\d.,]+\)?$/.test(s) === false) { const n = parseFloat(s.replace(",", ".")); return isFinite(n) ? n : null; }
+  const neg = /^\(.*\)$/.test(s); s = s.replace(/[()]/g, "");
+  if (s.includes(",") && s.includes(".")) s = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  else if (/^-?\d{1,3}(,\d{3})+$/.test(s)) s = s.replace(/,/g, "");
+  else s = s.replace(",", ".");
+  const n = parseFloat(s); return isFinite(n) ? (neg ? -n : n) : null;
+};
 const yn = v => { const s = norm(v); if (!s) return null; if (["да", "yes", "y", "1", "true", "истина"].includes(s)) return "Да"; if (["нет", "no", "n", "0", "false", "ложь"].includes(s)) return "Нет"; return null; };
 const pct = v => v == null ? "" : Math.round(v * 100) + "%";
 const fmt = v => v == null ? "" : (Math.round(v * 10) / 10).toLocaleString("ru-RU");
@@ -534,12 +543,54 @@ function setupSheet(fo) {
   fo.map.pr = sl.id === "launch" ? -1 : projCol(fo.headers, amIdx);
   fo.map.dt = fo.map.pr >= 0 ? dateCol(fo.headers) : -1;
   for (const f of fl) fo.map[f[0]] = guessCol(fo.headers, f);
+  if (isRevSlot(sl) && wideRevCols(fo.headers)) { fo.map.rev_fact = -1; fo.map.rev_fc = -1; }
   // a column named just "Tier"/"Тир" is a per-project tier, not a count of Tier 1/2/3 projects
   if (fo.map.tier >= 0 && ["t1", "t2", "t3"].some(k => fo.map[k] === fo.map.tier)) fo.map.tier = -1;
   // avoid one column feeding two fields
   const used = new Set([fo.map.am, fo.map.pr, fo.map.dt].filter(i => i >= 0));
   for (const f of fl) { const i = fo.map[f[0]]; if (i >= 0 && used.has(i)) fo.map[f[0]] = -1; else if (i >= 0) used.add(i); }
 }
+// ---------- wide revenue table: a column per month (1/26Total, 2/26Forecast, 2/2026Fact, Oct26F Goal, Oct26F Fact, Jan27F ...) ----------
+const MON_EN = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+function monthCol(h) {
+  const x = norm(h).replace(/\s+/g, "");
+  let m = x.match(/^(\d{1,2})\/(\d{2}|\d{4})(rake|total|forecast[a-z]*|fact[a-z]*|goal|plan|f)$/);
+  let mo, y, kind;
+  if (m) { mo = +m[1]; y = +m[2]; kind = m[3]; }
+  else if ((m = x.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-'/]?(\d{2}|\d{4})(f)?(goal|forecast|plan|fact|actual)?$/))) { mo = MON_EN.indexOf(m[1]) + 1; y = +m[2]; kind = m[4] || (m[3] ? "f" : ""); }
+  else return null;
+  if (!mo || mo > 12 || !kind) return null;
+  if (y < 100) y += 2000;
+  const k = kind === "rake" ? "rake" : kind === "total" ? "total" : /^(fact|actual)/.test(kind) ? "fact" : "fc";
+  return { key: `${y}-${String(mo).padStart(2, "0")}`, k };
+}
+function wideRevCols(headers) {
+  const out = {};
+  headers.forEach((h, i) => { const c = monthCol(h); if (!c || c.k === "rake") return; const o = out[c.key] || (out[c.key] = {}); if (o[c.k] == null) o[c.k] = i; });
+  return Object.keys(out).length >= 2 ? out : null;
+}
+function periodMonths(p) {
+  const mo = monthOf(p); if (mo) return [`${mo.y}-${String(mo.i + 1).padStart(2, "0")}`];
+  const m = String(p).match(/Q(\d)\s+(\d{4})/); if (!m) return [];
+  return [0, 1, 2].map(k => `${m[2]}-${String((+m[1] - 1) * 3 + k + 1).padStart(2, "0")}`);
+}
+// fact and Forecast of one row for the selected period; Forecast is compared only for the months that already have a fact
+function wideRev(row, wide, months) {
+  let f = 0, nf = 0, fcF = 0, nfcF = 0, fcAll = 0, nfc = 0;
+  for (const m of months) {
+    const c = wide[m]; if (!c) continue;
+    const fv = num(row[c.fact != null ? c.fact : c.total]), cv = c.fc != null ? num(row[c.fc]) : null;
+    if (cv != null) { fcAll += cv; nfc++; }
+    if (fv != null) { f += fv; nf++; if (cv != null) { fcF += cv; nfcF++; } }
+  }
+  const out = { nf };
+  if (nf) { out.rev_fact = f; if (nfcF) out.rev_fc = fcF; }
+  else if (nfc) out.rev_fc = fcAll;
+  return out;
+}
+const isRevSlot = sl => sl.id === "rev" || sl.id === "all";
+function extraCol(headers, keys) { const hs = headers.map(h => norm(h).replace(/\s+/g, "")); return hs.findIndex(h => keys.includes(h)); }
+
 // ---------- projects: matching by project and AM, AM change, new projects ----------
 function projCol(headers, amIdx) {
   const hs = headers.map(norm);
@@ -612,9 +663,10 @@ function syncRegistry(prows) {
   const prev = prevReg(), hasPrev = !!(prev && Object.keys(prev).length);
   const seen = {};
   for (const r of prows) {
-    const s = seen[r.key] || (seen[r.key] = { name: r.pr, ams: [], tier: "", fc: null });
+    const s = seen[r.key] || (seen[r.key] = { name: r.pr, ams: [], tier: "", fc: null, launch: "" });
     if (!s.ams.some(x => norm(x) === norm(r.am))) s.ams.push(r.am);
-    if (r.tier && !s.tier) s.tier = r.tier;
+    if ((r.tier || r.ptier) && !s.tier) s.tier = r.tier || r.ptier;
+    if (r.launch != null && r.launch !== "" && !s.launch) { const d = toDate(r.launch); if (d) s.launch = ISO(d); }
     if (r.vals.rev_fc != null) s.fc = (s.fc || 0) + r.vals.rev_fc;
   }
   for (const [key, s] of Object.entries(seen)) {
@@ -628,8 +680,13 @@ function syncRegistry(prows) {
       const start = p ? (p.amEnd || p.amStart) : s.ams[0];
       const other = s.ams.find(x => norm(x) !== norm(start));
       e.amStart = start; e.amEnd = other || s.ams.find(x => norm(x) === norm(start)) || start;
+      // launch date from the document: launched in this period or later = a new project, counted from the launch date
+      const qr = qRange(st.quarter), ld = toDate(s.launch);
+      if (ld && qr && ld >= qr.s) e.isNew = true;
+      if (e.isNew && !e.launch && s.launch) e.launch = s.launch;
       if (e.isNew && !e.tier && s.tier) e.tier = s.tier;
     }
+    e.fileLaunch = s.launch;
   }
   // projects that disappeared from the documents stay only if the lead touched them
   if (!(st.lightFiles && st.lightFiles.length)) for (const key of Object.keys(st.reg)) if (!seen[key] && !st.reg[key].edited) delete st.reg[key];
@@ -651,6 +708,11 @@ function applyFiles() {
     // launch KPI is quarterly by the regulation: for a month the quarter's launch summary is the reference
     const want = [norm(st.quarter)].concat(sl.id === "launch" && isMonth(st.quarter) ? [norm(quarterOf(st.quarter))] : []);
     const rows = [];
+    const wide = isRevSlot(sl) && !(fo.map.rev_fact >= 0 || fo.map.rev_fc >= 0) ? wideRevCols(fo.headers) : null;
+    const months = wide ? periodMonths(st.quarter) : [];
+    fo.wideInfo = wide ? { months: months.length, found: months.filter(m => wide[m]).length, fact: 0 } : null;
+    const iLaunch = extraCol(fo.headers, ["launchdate", "датазапуска", "golive", "go-livedate"]);
+    const iTierP = fo.map.tier >= 0 ? fo.map.tier : extraCol(fo.headers, ["tier", "тир"]);
     for (const row of sh.rows.slice(fo.hr + 1)) {
       const name = String(row[fo.map.am] ?? "").trim();
       if (!name) continue;
@@ -662,10 +724,15 @@ function applyFiles() {
         if (f[3] === "yn") { const y = yn(row[i]); if (y) yns[f[0]] = y; continue; }
         const n = num(row[i]); if (n != null) vals[f[0]] = n;
       }
+      if (wide) { const ld = iLaunch >= 0 ? toDate(row[iLaunch]) : null;
+        // revenue counts from the launch date: months that end before the launch are left out
+        const w = wideRev(row, wide, ld ? months.filter(m => new Date(+m.slice(0, 4), +m.slice(5, 7), 0) >= ld) : months); if (w.rev_fact != null) vals.rev_fact = w.rev_fact; if (w.rev_fc != null) vals.rev_fc = w.rev_fc; fo.wideInfo.fact = Math.max(fo.wideInfo.fact, w.nf); }
       let tier = "";
       if (fo.map.tier >= 0) { const t = norm(row[fo.map.tier]).replace("tier", "").replace("тир", "").trim(); if (["1", "2", "3"].includes(t)) tier = t; }
       const pr = fo.map.pr >= 0 ? String(row[fo.map.pr] ?? "").trim() : "";
-      const r = { am: name, pr, key: norm(pr), vals, yns, tier, dt: fo.map.dt >= 0 ? row[fo.map.dt] : null };
+      let ptier = tier;
+      if (!ptier && iTierP >= 0) { const t = norm(row[iTierP]).replace("tier", "").replace("тир", "").replace("t", "").trim(); if (["1", "2", "3"].includes(t)) ptier = t; }
+      const r = { am: name, pr, key: norm(pr), vals, yns, tier, ptier, launch: iLaunch >= 0 ? row[iLaunch] : null, dt: fo.map.dt >= 0 ? row[fo.map.dt] : null };
       rows.push(r); if (pr) prows.push(r);
     }
     perFile.push({ fo, sl, fl, rows });
@@ -751,7 +818,8 @@ function renderFiles() {
       if (fo.slot !== "launch") items.push(mk("pr", "Проект (для сопоставления по проектам)"), mk("dt", "Дата события (QBR, follow-up)"));
       if (sl.tier) items.push(mk("tier", "Tier проекта (строка на проект)"));
       const grid = el("div", { class: "filemap" }, items.concat(fl.map(f => mk(f[0], f[1]))));
-      const mapped = fl.filter(f => fo.map[f[0]] >= 0).length + (fo.map.tier >= 0 ? 1 : 0);
+      if (fo.wideInfo) grid.prepend(el("p", { class: "small", style: "grid-column:1/-1;margin:0", text: `Помесячная таблица выручки: для ${st.quarter} найдено месяцев ${fo.wideInfo.found} из ${fo.wideInfo.months}, факт есть за ${fo.wideInfo.fact}. Факт - колонки «fact» (до появления отдельного факта - «Total»), Forecast - «Forecast», «Goal» или «...F», Rake не используется. Если факт есть не за все месяцы, Forecast сравнивается только за месяцы с фактом.` }));
+      const mapped = fl.filter(f => fo.map[f[0]] >= 0).length + (fo.map.tier >= 0 ? 1 : 0) + (fo.wideInfo && fo.wideInfo.found ? 2 : 0);
       flist.append(el("div", { class: "fitem" }, [
         el("div", { class: "row" }, [el("b", { class: "grow small", text: fo.name }), sheetSel, el("button", { class: "btn ghost", text: "Убрать", onclick: () => { st.files.splice(idx, 1); applyFiles(); renderAll(); } })]),
         el("span", { class: "small " + (fo.map.am < 0 || !mapped ? "" : "muted"), style: fo.map.am < 0 || !mapped ? "color:var(--red)" : "", text: fo.map.am < 0 ? "Не найдена колонка с AM - выберите ее в сопоставлении." : !mapped ? "Не найдено ни одной колонки блока - выберите их в сопоставлении." : `Сопоставлено колонок: ${mapped}.${fo.skipped ? ` Пропущено строк другого периода: ${fo.skipped}.` : ""} Проверьте и поправьте, если нужно.` }),
@@ -920,14 +988,14 @@ function renderProjects() {
     const la = el("input", { type: "date", value: e.launch || "", disabled: !e.isNew, class: e.isNew && !e.launch ? "need" : "", "aria-label": `Дата запуска: ${e.name}`, onchange: ev => upd(e, { launch: ev.target.value }) });
     const ti = el("select", { disabled: !e.isNew, class: e.isNew && !e.tier ? "need" : "", "aria-label": `Tier: ${e.name}`, onchange: ev => upd(e, { tier: ev.target.value }) },
       [["", "-"], ["1", "Tier 1"], ["2", "Tier 2"], ["3", "Tier 3"]].map(([v, t]) => el("option", { value: v, selected: String(e.tier || "") === v, text: t })));
-    const fc = el("input", { type: "number", step: "any", value: e.fc ?? "", disabled: !e.isNew, placeholder: e.fileFc != null ? `из файла ${fmt(e.fileFc)}` : "", "aria-label": `Forecast выручки, тыс.: ${e.name}`, onchange: ev => upd(e, { fc: ev.target.value }) });
+    const fc = el("input", { type: "number", step: "any", value: e.fc ?? "", disabled: !e.isNew, placeholder: e.fileFc != null ? `из файла ${fmt(e.fileFc)}` : "", "aria-label": `Forecast выручки: ${e.name}`, onchange: ev => upd(e, { fc: ev.target.value }) });
     let share = "";
     if (ps.tr) { const w = attribute(e, "rev_fact"); share = w.map(([n, x]) => `${n} ${Math.round(x * 100)}%`).join(", ") + `; HS, eNPS и прочее - ${ps.major}`; }
     else if (ps.notLaunched) share = "до запуска: только Health Score и eNPS";
     return el("tr", {}, [el("td", {}, [el("div", { text: e.name }), el("div", {}, tags)]), el("td", {}, amSel(e, "amStart", "AM на начало квартала")), el("td", {}, amSel(e, "amEnd", "AM на конец квартала")), el("td", {}, tr),
       el("td", { style: "text-align:center" }, nw), el("td", {}, la), el("td", {}, ti), el("td", {}, fc), el("td", { class: "small muted", text: share })]);
   };
-  const head = el("tr", {}, ["Проект", "AM на начало", "AM на конец", "Дата передачи", "Новый", "Дата запуска", "Tier", "Forecast, тыс.", "Как делится"].map(t => el("th", { text: t })));
+  const head = el("tr", {}, ["Проект", "AM на начало", "AM на конец", "Дата передачи", "Новый", "Дата запуска", "Tier", "Forecast", "Как делится"].map(t => el("th", { text: t })));
   const issueKeys = [...new Set(iss.change.concat(iss.fresh))];
   $("#projIssues").replaceChildren(issueKeys.length ? el("div", { class: "tablewrap" }, el("table", { class: "ptab" }, [el("thead", {}, head), el("tbody", {}, issueKeys.map(k => row(k)))])) : "");
   const all = el("table", { class: "ptab" }, [el("thead", {}, head.cloneNode(true)), el("tbody", {}, keys.sort((a, b) => st.reg[a].name.localeCompare(st.reg[b].name, "ru")).map(k => row(k)))]);
